@@ -111,9 +111,8 @@ Each library has its own `CLAUDE.md` with full usage docs. Read it before using.
 
 | Library | Purpose |
 |---------|---------|
-| `lib/crash_log/` | Boot-time coredump detection, shell commands (`crash check/info/dump/clear`), auto-report via RTT |
+| `lib/crash_log/` | Boot-time coredump detection, shell commands (`crash check/info/dump/clear`), auto-report via RTT. Config overlays in `conf/`. |
 | `lib/device_shell/` | Board management shell commands (`board info/uptime/reset`) |
-| `lib/debug_config/` | Shared Kconfig overlays for crash diagnostics (RTT-only and flash-backed variants) |
 
 ## Testing
 

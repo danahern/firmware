@@ -14,21 +14,23 @@ Use this when an app might crash **after boot** (not just during startup). Witho
 
 ## How to Include
 
-### 1. Register as a Zephyr module in your app's CMakeLists.txt
+### 1. Library auto-discovery
+
+Shared libraries are auto-discovered via `zephyr/module.yml` — no `ZEPHYR_EXTRA_MODULES` needed for apps built in this workspace. Just enable `CONFIG_CRASH_LOG=y` in your prj.conf or overlay.
+
+### 2. Include the coredump config overlays
 
 ```cmake
-list(APPEND ZEPHYR_EXTRA_MODULES
-    ${CMAKE_CURRENT_LIST_DIR}/../../lib/crash_log
-)
+# Base debug settings (RTT, logging, debug optimizations)
+list(APPEND OVERLAY_CONFIG "${CMAKE_CURRENT_LIST_DIR}/../../lib/crash_log/conf/debug_base.conf")
+# Flash-backed coredump (or use debug_coredump.conf for RTT-only)
+list(APPEND OVERLAY_CONFIG "${CMAKE_CURRENT_LIST_DIR}/../../lib/crash_log/conf/debug_coredump_flash.conf")
 ```
 
-### 2. Include the flash coredump overlay
-
-```cmake
-list(APPEND OVERLAY_CONFIG "${CMAKE_CURRENT_LIST_DIR}/../../lib/debug_config/debug_coredump_flash.conf")
-```
-
-This overlay enables: coredump flash backend, crash_log module, RTT logging, shell, and debug build settings.
+Available overlays in `conf/`:
+- `debug_base.conf` — Common: RTT logging, debug optimizations, coredump subsystem
+- `debug_coredump.conf` — RTT-only: coredump emitted at crash time (simple, no flash needed)
+- `debug_coredump_flash.conf` — Flash-backed: persists across reboots, crash_log auto-report
 
 ### 3. Add a DTS overlay for your board
 

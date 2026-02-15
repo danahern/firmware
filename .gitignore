@@ -18,6 +18,9 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Local config (credentials, environment-specific settings)
+local.conf
+
 # Compiled files
 *.o
 *.a

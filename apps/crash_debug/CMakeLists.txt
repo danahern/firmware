@@ -1,13 +1,11 @@
 cmake_minimum_required(VERSION 3.20.0)
 
-# Register library modules before find_package(Zephyr)
-list(APPEND ZEPHYR_EXTRA_MODULES
-    ${CMAKE_CURRENT_LIST_DIR}/../../lib/crash_log
-    ${CMAKE_CURRENT_LIST_DIR}/../../lib/device_shell
-)
+# Shared libraries (crash_log, device_shell) are auto-discovered
+# via zephyr/module.yml — no ZEPHYR_EXTRA_MODULES needed.
 
 # Flash-based coredump with shell + crash_log + device_shell
-list(APPEND OVERLAY_CONFIG "${CMAKE_CURRENT_LIST_DIR}/../../lib/debug_config/debug_coredump_flash.conf")
+list(APPEND OVERLAY_CONFIG "${CMAKE_CURRENT_LIST_DIR}/../../lib/crash_log/conf/debug_base.conf")
+list(APPEND OVERLAY_CONFIG "${CMAKE_CURRENT_LIST_DIR}/../../lib/crash_log/conf/debug_coredump_flash.conf")
 list(APPEND OVERLAY_CONFIG "${CMAKE_CURRENT_LIST_DIR}/../../lib/device_shell/device_shell.conf")
 
 # Board-specific DTS overlays for coredump flash partition

@@ -1,0 +1,7 @@
+# Local configuration — copy to local.conf and set your values
+# This file is gitignored. Include via:
+#   west build ... -- -DOVERLAY_CONFIG=local.conf
+CONFIG_BRIDGE_WIFI_SSID="your_ssid"
+CONFIG_BRIDGE_WIFI_PSK="your_password"
+CONFIG_BRIDGE_TCP_SERVER_ADDR="192.168.1.200"
+CONFIG_BRIDGE_TCP_SERVER_PORT=4242

@@ -1,0 +1,2 @@
+rsource "crash_log/Kconfig"
+rsource "device_shell/Kconfig"
