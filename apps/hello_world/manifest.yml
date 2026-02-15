@@ -1,0 +1,7 @@
+description: "Simple hello world for testing"
+boards:
+  - nrf52840dk/nrf52840
+libraries:
+  - crash_log
+  - device_shell
+template: core
