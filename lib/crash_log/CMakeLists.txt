@@ -1,0 +1,4 @@
+zephyr_library_named(crash_log)
+zephyr_library_sources_ifdef(CONFIG_CRASH_LOG src/crash_log.c)
+zephyr_library_sources_ifdef(CONFIG_CRASH_LOG_SHELL src/crash_log_shell.c)
+zephyr_include_directories_ifdef(CONFIG_CRASH_LOG include)

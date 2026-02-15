@@ -1,0 +1,8 @@
+config DEVICE_SHELL
+	bool "Device shell commands"
+	depends on SHELL
+	help
+	  Adds board info and management commands to the shell:
+	    board info    - Board, firmware version, build date
+	    board uptime  - Time since boot
+	    board reset   - Software reset

@@ -1,0 +1,9 @@
+common:
+  tags:
+    - device_shell
+    - shell
+tests:
+  libraries.device_shell:
+    integration_platforms:
+      - qemu_cortex_m3
+      - native_sim

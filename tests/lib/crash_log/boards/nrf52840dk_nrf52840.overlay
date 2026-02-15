@@ -1,0 +1,24 @@
+/*
+ * Coredump flash partition for nRF52840DK
+ *
+ * nRF52840 has 1MB flash. Storage ends at 0x100000.
+ * Shrink storage by 12KB to make room for coredump.
+ * Storage: 0xF8000-0xFD000 (20KB, was 32KB)
+ * Coredump: 0xFD000-0x100000 (12KB)
+ */
+
+&flash0 {
+	partitions {
+		/delete-node/ partition@f8000;
+
+		storage_partition: partition@f8000 {
+			label = "storage";
+			reg = <0x000f8000 0x00005000>;
+		};
+
+		coredump_partition: partition@fd000 {
+			label = "coredump";
+			reg = <0x000fd000 0x00003000>;
+		};
+	};
+};

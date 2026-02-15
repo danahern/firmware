@@ -1,0 +1,29 @@
+config CRASH_LOG
+	bool "Crash log - boot-time coredump detection"
+	depends on DEBUG_COREDUMP
+	depends on DEBUG_COREDUMP_BACKEND_FLASH_PARTITION || DEBUG_COREDUMP_BACKEND_IN_MEMORY
+	help
+	  Checks for stored coredump on boot and logs status.
+	  Provides a C API: crash_log_has_coredump(), crash_log_clear().
+	  Works with both flash partition and in-memory coredump backends.
+
+config CRASH_LOG_AUTO_REPORT
+	bool "Auto-report stored coredump on boot"
+	depends on CRASH_LOG
+	default y
+	help
+	  On boot, if a stored coredump is found, automatically emit it
+	  as #CD: prefixed hex lines via logging. This makes it capturable
+	  by the analyze_coredump MCP tool through RTT.
+
+config CRASH_LOG_SHELL
+	bool "Crash shell commands"
+	depends on CRASH_LOG
+	depends on SHELL
+	default y if SHELL
+	help
+	  Adds crash management commands to the shell:
+	    crash check  - Check if a stored coredump exists
+	    crash info   - Show crash summary (registers from header)
+	    crash dump   - Output stored coredump as #CD: lines
+	    crash clear  - Erase stored coredump

@@ -1,0 +1,25 @@
+/*
+ * Coredump flash partition for nRF54L15DK
+ *
+ * nRF54L15 cpuapp RRAM is 1524KB (0x0 to 0x17D000).
+ * Default storage_partition is 36KB at 0x174000-0x17D000.
+ * Shrink storage to 24KB to make room for 12KB coredump.
+ *   Storage:  0x174000-0x17A000 (24KB, was 36KB)
+ *   Coredump: 0x17A000-0x17D000 (12KB)
+ */
+
+&cpuapp_rram {
+	partitions {
+		/delete-node/ partition@174000;
+
+		storage_partition: partition@174000 {
+			label = "storage";
+			reg = <0x174000 DT_SIZE_K(24)>;
+		};
+
+		coredump_partition: partition@17a000 {
+			label = "coredump";
+			reg = <0x17a000 DT_SIZE_K(12)>;
+		};
+	};
+};

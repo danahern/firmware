@@ -1,0 +1,9 @@
+common:
+  tags:
+    - crash_log
+    - coredump
+tests:
+  libraries.crash_log:
+    # In-memory coredump backend — runs on QEMU, no flash needed.
+    integration_platforms:
+      - qemu_cortex_m3

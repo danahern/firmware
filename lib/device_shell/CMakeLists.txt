@@ -1,0 +1,2 @@
+zephyr_library_named(device_shell)
+zephyr_library_sources_ifdef(CONFIG_DEVICE_SHELL src/device_shell.c)

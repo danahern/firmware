@@ -196,12 +196,14 @@ zephyr-apps/
 ├── west.yml         # West manifest
 ├── apps/            # Application projects
 │   ├── ble_data_transfer/  # BLE NUS echo app (nRF52840)
-│   └── ble_wifi_bridge/    # BLE-to-WiFi bridge (ESP32-S3-EYE)
+│   ├── ble_wifi_bridge/    # BLE-to-WiFi bridge (ESP32-S3-EYE)
+│   └── crash_debug/        # Crash debug demo (nRF54L15DK)
+├── lib/             # Shared libraries
+│   └── debug_config/       # Reusable debug/coredump Kconfig overlays
 ├── tools/           # Testing and utility scripts
 │   └── ble_throughput.py   # BLE throughput tester
 ├── boards/          # Custom board definitions
 ├── drivers/         # Custom drivers
-└── lib/             # Shared libraries
 ```
 
 ## Applications
@@ -270,6 +272,71 @@ CONFIG_BRIDGE_WIFI_SSID="YourNetworkName"
 CONFIG_BRIDGE_WIFI_PSK="YourPassword"
 CONFIG_BRIDGE_TCP_SERVER_ADDR="192.168.1.100"
 CONFIG_BRIDGE_TCP_SERVER_PORT=4242
+```
+
+### crash_debug
+
+A crash debug demo that intentionally triggers a HardFault after 5 seconds. Used to test and demonstrate the automated crash analysis workflow with MCP tools.
+
+**Target Board:** nRF54L15DK (`nrf54l15dk/nrf54l15/cpuapp`)
+
+**What it does:**
+- Boots and logs startup messages via RTT
+- Waits 5 seconds, then crashes through a call chain: `main` → `sensor_init_sequence` → `sensor_process_data` → `sensor_read_register`
+- The crash is a NULL pointer write (`*ptr = 0xDEAD` at address 0x0), triggering an MPU FAULT
+- Zephyr's coredump subsystem captures registers and stack, outputs `#CD:` prefixed hex lines via RTT
+- The `analyze_coredump` MCP tool parses these lines and produces a crash report with function names
+
+**Build (via MCP):**
+```
+zephyr-build.build(app="crash_debug", board="nrf54l15dk/nrf54l15/cpuapp", pristine=true)
+```
+
+**Crash Debug Workflow (via MCP):**
+```
+1. Build:     zephyr-build.build(app="crash_debug", board="nrf54l15dk/nrf54l15/cpuapp", pristine=true)
+2. Connect:   embedded-probe.connect(probe_selector="auto", target_chip="nrf54l15")
+3. Flash:     embedded-probe.flash_program(session_id, file_path="build/zephyr/zephyr.hex")
+4. Reset:     embedded-probe.reset(session_id, halt_after_reset=false)
+5. Attach:    embedded-probe.rtt_attach(session_id)
+6. Capture:   embedded-probe.rtt_read(session_id, timeout_ms=12000, max_bytes=16384)
+              (repeat rtt_read until #CD:END# appears — output arrives in chunks)
+7. Analyze:   embedded-probe.analyze_coredump(log_text=<combined_rtt_output>, elf_path="build/zephyr/zephyr.elf")
+```
+
+**Example crash report output:**
+```
+=== Crash Analysis Report ===
+
+Fault reason: Unknown
+Crash PC:     0x00000770 → sensor_read_register+0x14
+Caller (LR):  0x000073C9 → msg_commit+0xa
+Stack (SP):   0x20003030
+
+Call chain (from exception frame):
+  #0 0x00000770 sensor_read_register+0x14    ← CRASH HERE
+  #3 0x00000833 sensor_process_data+0xb6
+  #4 0x0000085B sensor_init_sequence+0x12
+  #6 0x00000897 main+0x2e
+
+Memory regions captured: 2 (176 bytes from 0x200018B0, 80 bytes from 0x20003030)
+```
+
+**Known issues:**
+- ELF flashing via probe-rs sometimes fails on nRF54L15 (RRAM). Use the `.hex` file instead.
+- RTT output arrives in 1024-byte chunks even with a 4096-byte device buffer. Read multiple times and concatenate until `#CD:END#` appears.
+- When concatenating split RTT reads, be careful at line boundaries — hex data can split mid-line across reads.
+
+**Shared debug config:** Uses `lib/debug_config/debug_coredump.conf` overlay which provides:
+- `CONFIG_DEBUG_COREDUMP=y` with logging backend
+- `CONFIG_DEBUG_COREDUMP_MEMORY_DUMP_MIN=y` (stack-only dump, fits in RTT buffer)
+- `CONFIG_SEGGER_RTT_BUFFER_SIZE_UP=4096` (larger RTT buffer)
+- RTT logging backend (replaces UART)
+- Debug-optimized build settings
+
+Any app can include this overlay to get crash diagnostics:
+```cmake
+list(APPEND OVERLAY_CONFIG "${CMAKE_CURRENT_LIST_DIR}/../../lib/debug_config/debug_coredump.conf")
 ```
 
 ## Tools
