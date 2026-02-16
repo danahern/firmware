@@ -100,10 +100,10 @@ globals: |
   	}
 
   	/* Restart advertising */
-  	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad),
-  			      sd, ARRAY_SIZE(sd));
-  	if (err) {
-  		LOG_ERR("Advertising restart failed: %d", err);
+  	int adv_err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad),
+  				      sd, ARRAY_SIZE(sd));
+  	if (adv_err) {
+  		LOG_ERR("Advertising restart failed: %d", adv_err);
   	}
   }
 
