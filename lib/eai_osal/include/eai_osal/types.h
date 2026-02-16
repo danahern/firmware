@@ -28,6 +28,8 @@ typedef void (*eai_osal_work_cb_t)(void *arg);
 /* Backend type dispatch — pulls in eai_osal_mutex_t, eai_osal_sem_t, etc. */
 #if defined(CONFIG_EAI_OSAL_BACKEND_ZEPHYR)
 #include "../../src/zephyr/types.h"
+#elif defined(CONFIG_EAI_OSAL_BACKEND_FREERTOS)
+#include "../../src/freertos/types.h"
 #else
 #error "No EAI OSAL backend selected"
 #endif
