@@ -1,8 +1,7 @@
 cmake_minimum_required(VERSION 3.20.0)
 
-list(APPEND ZEPHYR_EXTRA_MODULES
-    ${CMAKE_CURRENT_LIST_DIR}/..
-)
+# device_shell is auto-discovered via the workspace-level zephyr/module.yml
+# No ZEPHYR_EXTRA_MODULES needed.
 
 find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
 project(device_shell_test)
