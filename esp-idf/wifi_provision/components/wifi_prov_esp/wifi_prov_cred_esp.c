@@ -7,6 +7,7 @@
 #include "nvs_flash.h"
 #include "nvs.h"
 
+#include <errno.h>
 #include <string.h>
 
 #include <wifi_prov/wifi_prov.h>
@@ -67,7 +68,7 @@ int wifi_prov_cred_store(const struct wifi_prov_cred *cred)
 
 	if (!cred || cred->ssid_len == 0 ||
 	    cred->ssid_len > WIFI_PROV_SSID_MAX_LEN) {
-		return -1;
+		return -EINVAL;
 	}
 
 	/* Update in-memory copy */
@@ -95,13 +96,13 @@ int wifi_prov_cred_store(const struct wifi_prov_cred *cred)
 int wifi_prov_cred_load(struct wifi_prov_cred *cred)
 {
 	if (!cred) {
-		return -1;
+		return -EINVAL;
 	}
 
 	load_from_nvs();
 
 	if (stored_cred.ssid_len == 0) {
-		return -1;
+		return -ENOENT;
 	}
 
 	memcpy(cred, &stored_cred, sizeof(*cred));

@@ -1,4 +1,6 @@
-# Zephyr Applications
+# Firmware
+
+Multi-RTOS firmware repository with Zephyr apps, ESP-IDF apps, and shared libraries.
 
 ## Development Guidelines
 
@@ -10,7 +12,7 @@
 
 This loads guidelines for memory management, error handling, code organization, Zephyr patterns, and MCP tool usage.
 
-## Available Apps
+## Zephyr Apps
 
 | App | Board | Description |
 |-----|-------|-------------|
@@ -18,6 +20,14 @@ This loads guidelines for memory management, error handling, code organization, 
 | ble_wifi_bridge | esp32s3_eye/esp32s3/procpu | BLE-to-TCP bridge - forwards BLE data over WiFi to a TCP server |
 | crash_debug | nrf54l15dk/nrf54l15/cpuapp | Crash debug demo - intentional HardFault with coredump analysis via MCP |
 | wifi_provision | nrf7002dk/nrf5340/cpuapp | WiFi provisioning over BLE with TCP throughput server |
+
+## ESP-IDF Apps
+
+| App | Target | Description |
+|-----|--------|-------------|
+| wifi_provision | ESP32 DevKitC | WiFi provisioning over BLE (NimBLE) — same GATT protocol as Zephyr version |
+| osal_tests | ESP32 DevKitC | OSAL FreeRTOS backend unit tests (44 tests) |
+| wifi_prov_tests | ESP32 DevKitC | WiFi provisioning unit tests (22 tests — msg, sm, cred) |
 
 ## Building Apps
 
@@ -114,7 +124,7 @@ Each library has its own `CLAUDE.md` with full usage docs. Read it before using.
 |---------|---------|
 | `lib/crash_log/` | Boot-time coredump detection, shell commands (`crash check/info/dump/clear`), auto-report via RTT. Config overlays in `conf/`. |
 | `lib/device_shell/` | Board management shell commands (`board info/uptime/reset`) |
-| `lib/eai_osal/` | OS abstraction layer — portable mutex, semaphore, thread, queue, timer, event, critical section, time primitives. Zephyr backend. |
+| `lib/eai_osal/` | OS abstraction layer — portable mutex, semaphore, thread, queue, timer, event, critical section, time, work queue primitives. Zephyr + FreeRTOS backends. |
 | `lib/wifi_prov/` | WiFi provisioning over BLE — custom GATT service, WiFi scan/connect, credential persistence, state machine. See `lib/wifi_prov/CLAUDE.md`. |
 
 ## Testing
@@ -151,6 +161,22 @@ Artifacts land in `apps/<app>/build/<board>/zephyr/zephyr.{elf,hex}`. Flash with
 | `libraries.eai_osal` | qemu_cortex_m3 | 44 tests (all OSAL primitives + work queues) |
 | `libraries.wifi_prov` | qemu_cortex_m3 | 22 tests (credentials, message encode/decode, state machine) |
 
+### ESP-IDF Tests
+
+ESP-IDF tests use Unity framework and run on real ESP32 hardware:
+
+```bash
+cd esp-idf/<test_project>
+idf.py set-target esp32
+idf.py build
+idf.py -p /dev/cu.usbserial-110 flash monitor
+```
+
+| Test Project | Target | Tests |
+|-------------|--------|-------|
+| `osal_tests` | ESP32 | 44 tests (all OSAL FreeRTOS backend primitives) |
+| `wifi_prov_tests` | ESP32 | 22 tests (message encode/decode, state machine, NVS credentials) |
+
 ## Addons
 
 Composable code generation modules in `addons/`. Specified via `create_app(libraries=["ble", "wifi"])` — each addon injects Kconfig, includes, globals, and init code into the generated app.
@@ -165,9 +191,10 @@ Addons vs libraries: **Libraries** (`lib/<name>/manifest.yml`) inject overlay co
 
 ## Structure
 
-- `apps/` - Application projects
+- `apps/` - Zephyr application projects
+- `esp-idf/` - ESP-IDF application projects and test projects
 - `addons/` - Composable code generation addons (YAML — BLE, WiFi, TCP)
-- `lib/` - Shared libraries (each with its own CLAUDE.md)
-- `lib/<name>/tests/` - Unit tests co-located with libraries (run via twister on QEMU)
+- `lib/` - Shared libraries (each with its own CLAUDE.md, used by both Zephyr and ESP-IDF)
+- `lib/<name>/tests/` - Zephyr unit tests co-located with libraries (run via twister on QEMU)
 - `boards/` - Custom board definitions (future)
 - `drivers/` - Custom drivers (future)
