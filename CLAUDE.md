@@ -119,11 +119,30 @@ Each library has its own `CLAUDE.md` with full usage docs. Read it before using.
 
 ## Testing
 
-Run all tests via twister:
+Run all tests via twister (Docker — reproducible, matches CI):
+
+```bash
+make test
+```
+
+Or via local west (requires Zephyr SDK installed):
 
 ```bash
 python3 ../zephyr/scripts/twister -T lib -p qemu_cortex_m3 -O ../.cache/twister -v
 ```
+
+## Docker Builds
+
+The `Makefile` wraps Docker-based builds using the same Zephyr CI container as GitHub Actions (`ghcr.io/zephyrproject-rtos/ci:v0.28.7`). Same SDK + toolchain = identical binaries regardless of host.
+
+```bash
+make build APP=crash_debug BOARD=nrf54l15dk/nrf54l15/cpuapp   # Build in container
+make test                                                       # Twister on QEMU
+make shell                                                      # Interactive container
+make pull                                                       # Update container image
+```
+
+Artifacts land in `apps/<app>/build/<board>/zephyr/zephyr.{elf,hex}`. Flash with MCP tools natively.
 
 | Test Suite | Platform | Tests |
 |-----------|----------|-------|
