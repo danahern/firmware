@@ -405,14 +405,41 @@ Max latency:     45.67 ms
 
 ## Building Applications
 
+### Docker Builds (Recommended)
+
+Docker builds use the same Zephyr CI container as GitHub Actions — identical SDK, toolchain, and QEMU. Produces bit-for-bit reproducible binaries.
+
+**Prerequisites:** Docker Desktop installed and running. Then pull the image:
 ```bash
-# Activate the virtual environment
+make pull
+# Or via workspace setup: ./setup.sh --with-docker
+```
+
+**Build and test:**
+```bash
+# Build an app for a board
+make build APP=crash_debug BOARD=nrf54l15dk/nrf54l15/cpuapp
+
+# Run all library unit tests on QEMU
+make test
+
+# Interactive shell in the container (for debugging build issues)
+make shell
+```
+
+Artifacts land in `apps/<app>/build/<board>/zephyr/zephyr.{elf,hex}` — flash with MCP tools or `west flash` as usual.
+
+### Local Builds
+
+You can also build directly with `west` if you have the Zephyr SDK installed locally. Binaries may differ from CI if your SDK version doesn't match.
+
+```bash
 source .venv/bin/activate
 
 # Build for a specific board
 west build -b <board_name> apps/<app_name> -d apps/<app_name>/build
 
-# Clean build (remove previous build artifacts)
+# Clean build
 west build -b <board_name> apps/<app_name> -d apps/<app_name>/build --pristine
 
 # Examples
