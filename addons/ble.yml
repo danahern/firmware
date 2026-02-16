@@ -1,0 +1,135 @@
+name: ble
+description: "BLE peripheral with NUS — advertising, connection callbacks, NUS echo"
+depends: []
+
+kconfig: |
+  # Bluetooth
+  CONFIG_BT=y
+  CONFIG_BT_PERIPHERAL=y
+  CONFIG_BT_DEVICE_NAME="{{APP_NAME}}"
+  CONFIG_BT_ZEPHYR_NUS=y
+  CONFIG_BT_MAX_CONN=1
+  CONFIG_BT_DEVICE_APPEARANCE=833
+
+includes: |
+  #include <zephyr/bluetooth/bluetooth.h>
+  #include <zephyr/bluetooth/conn.h>
+  #include <zephyr/bluetooth/uuid.h>
+  #include <zephyr/bluetooth/services/nus.h>
+
+globals: |
+  #define DEVICE_NAME CONFIG_BT_DEVICE_NAME
+  #define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
+
+  /* Current BLE connection */
+  static struct bt_conn *current_conn;
+
+  /* Advertising data */
+  static const struct bt_data ad[] = {
+  	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+  	BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
+  };
+
+  /* Scan response data — includes NUS UUID */
+  static const struct bt_data sd[] = {
+  	BT_DATA_BYTES(BT_DATA_UUID128_ALL, BT_UUID_NUS_SRV_VAL),
+  };
+
+  /* NUS notification enabled callback */
+  static void nus_notif_enabled(bool enabled, void *ctx)
+  {
+  	ARG_UNUSED(ctx);
+  	LOG_INF("NUS notifications %s", enabled ? "enabled" : "disabled");
+  }
+
+  /* NUS data received callback — echo back with prefix */
+  static void nus_received(struct bt_conn *conn, const void *data, uint16_t len,
+  			 void *ctx)
+  {
+  	ARG_UNUSED(conn);
+  	ARG_UNUSED(ctx);
+
+  	char buf[CONFIG_BT_L2CAP_TX_MTU + 1];
+  	uint16_t copy_len = MIN(len, sizeof(buf) - 1);
+
+  	memcpy(buf, data, copy_len);
+  	buf[copy_len] = '\0';
+  	LOG_INF("NUS RX %u bytes: %s", len, buf);
+
+  	char response[CONFIG_BT_L2CAP_TX_MTU];
+  	int resp_len = snprintf(response, sizeof(response), "Echo: %s", buf);
+
+  	if (resp_len > 0) {
+  		int ret = bt_nus_send(conn, response, resp_len);
+  		if (ret < 0 && ret != -ENOTCONN) {
+  			LOG_ERR("NUS send failed: %d", ret);
+  		}
+  	}
+  }
+
+  /* NUS callbacks */
+  static struct bt_nus_cb nus_callbacks = {
+  	.notif_enabled = nus_notif_enabled,
+  	.received = nus_received,
+  };
+
+  /* Connection callbacks */
+  static void connected(struct bt_conn *conn, uint8_t err)
+  {
+  	char addr[BT_ADDR_LE_STR_LEN];
+  	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+  	if (err) {
+  		LOG_ERR("Connection failed: %s (err %u)", addr, err);
+  		return;
+  	}
+
+  	LOG_INF("Connected: %s", addr);
+  	current_conn = bt_conn_ref(conn);
+  }
+
+  static void disconnected(struct bt_conn *conn, uint8_t reason)
+  {
+  	char addr[BT_ADDR_LE_STR_LEN];
+  	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+  	LOG_INF("Disconnected: %s (reason 0x%02x)", addr, reason);
+
+  	if (current_conn) {
+  		bt_conn_unref(current_conn);
+  		current_conn = NULL;
+  	}
+
+  	/* Restart advertising */
+  	err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad),
+  			      sd, ARRAY_SIZE(sd));
+  	if (err) {
+  		LOG_ERR("Advertising restart failed: %d", err);
+  	}
+  }
+
+  BT_CONN_CB_DEFINE(conn_callbacks) = {
+  	.connected = connected,
+  	.disconnected = disconnected,
+  };
+
+init: |
+  err = bt_nus_cb_register(&nus_callbacks, NULL);
+  if (err) {
+  	LOG_ERR("NUS callback register failed: %d", err);
+  	return err;
+  }
+
+  err = bt_enable(NULL);
+  if (err) {
+  	LOG_ERR("Bluetooth init failed: %d", err);
+  	return err;
+  }
+  LOG_INF("Bluetooth initialized");
+
+  err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad),
+  		      sd, ARRAY_SIZE(sd));
+  if (err) {
+  	LOG_ERR("Advertising failed: %d", err);
+  	return err;
+  }
+  LOG_INF("Advertising started as \"%s\"", DEVICE_NAME);

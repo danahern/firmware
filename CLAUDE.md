@@ -132,9 +132,22 @@ python3 ../zephyr/scripts/twister -T lib -p qemu_cortex_m3 -O ../.cache/twister 
 | `libraries.eai_osal` | qemu_cortex_m3 | 44 tests (all OSAL primitives + work queues) |
 | `libraries.wifi_prov` | qemu_cortex_m3 | 22 tests (credentials, message encode/decode, state machine) |
 
+## Addons
+
+Composable code generation modules in `addons/`. Specified via `create_app(libraries=["ble", "wifi"])` — each addon injects Kconfig, includes, globals, and init code into the generated app.
+
+| Addon | Description |
+|-------|-------------|
+| `ble` | BLE peripheral with NUS — advertising, connection callbacks, NUS echo |
+| `wifi` | WiFi station with DHCP — net_mgmt events, connect/disconnect handlers |
+| `tcp` | TCP client socket — connect, send, receive with dedicated RX thread (depends: wifi) |
+
+Addons vs libraries: **Libraries** (`lib/<name>/manifest.yml`) inject overlay config into CMakeLists.txt. **Addons** (`addons/<name>.yml`) generate code directly into main.c and prj.conf. Both are specified in the `libraries` parameter of `create_app`.
+
 ## Structure
 
 - `apps/` - Application projects
+- `addons/` - Composable code generation addons (YAML — BLE, WiFi, TCP)
 - `lib/` - Shared libraries (each with its own CLAUDE.md)
 - `lib/<name>/tests/` - Unit tests co-located with libraries (run via twister on QEMU)
 - `boards/` - Custom board definitions (future)

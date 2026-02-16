@@ -1,0 +1,107 @@
+name: tcp
+description: "TCP client socket — connect, send, receive with dedicated RX thread"
+depends:
+  - wifi
+
+kconfig: |
+  # TCP sockets (requires networking from wifi addon)
+  CONFIG_NET_TCP=y
+  CONFIG_POSIX_API=y
+
+includes: |
+  #include <zephyr/net/socket.h>
+
+globals: |
+  /* TCP client state */
+  #define TCP_SERVER_ADDR  "192.168.1.100"
+  #define TCP_SERVER_PORT  4242
+  #define TCP_RX_BUF_SIZE  1024
+  #define TCP_RX_STACK_SIZE 2048
+
+  static int tcp_sock = -1;
+  static bool tcp_connected;
+
+  K_THREAD_STACK_DEFINE(tcp_rx_stack, TCP_RX_STACK_SIZE);
+  static struct k_thread tcp_rx_thread;
+
+  static void tcp_rx_thread_fn(void *p1, void *p2, void *p3)
+  {
+  	ARG_UNUSED(p1);
+  	ARG_UNUSED(p2);
+  	ARG_UNUSED(p3);
+
+  	uint8_t buffer[TCP_RX_BUF_SIZE];
+
+  	LOG_INF("TCP RX thread started");
+
+  	while (tcp_connected && tcp_sock >= 0) {
+  		int len = recv(tcp_sock, buffer, sizeof(buffer), 0);
+
+  		if (len < 0) {
+  			if (errno == EAGAIN || errno == EWOULDBLOCK) {
+  				continue;
+  			}
+  			LOG_ERR("TCP recv error: %d", errno);
+  			break;
+  		}
+
+  		if (len == 0) {
+  			LOG_INF("TCP connection closed by server");
+  			break;
+  		}
+
+  		LOG_INF("TCP RX: %d bytes", len);
+  	}
+
+  	LOG_INF("TCP RX thread exiting");
+  	tcp_connected = false;
+  }
+
+  static int tcp_connect(void)
+  {
+  	struct sockaddr_in server_addr;
+
+  	tcp_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  	if (tcp_sock < 0) {
+  		LOG_ERR("Failed to create socket: %d", errno);
+  		return -errno;
+  	}
+
+  	memset(&server_addr, 0, sizeof(server_addr));
+  	server_addr.sin_family = AF_INET;
+  	server_addr.sin_port = htons(TCP_SERVER_PORT);
+
+  	int ret = inet_pton(AF_INET, TCP_SERVER_ADDR, &server_addr.sin_addr);
+  	if (ret != 1) {
+  		LOG_ERR("Invalid server address: %s", TCP_SERVER_ADDR);
+  		close(tcp_sock);
+  		tcp_sock = -1;
+  		return -EINVAL;
+  	}
+
+  	LOG_INF("Connecting to %s:%d", TCP_SERVER_ADDR, TCP_SERVER_PORT);
+
+  	ret = connect(tcp_sock, (struct sockaddr *)&server_addr,
+  		      sizeof(server_addr));
+  	if (ret < 0) {
+  		LOG_ERR("TCP connect failed: %d", errno);
+  		close(tcp_sock);
+  		tcp_sock = -1;
+  		return -errno;
+  	}
+
+  	tcp_connected = true;
+  	LOG_INF("TCP connected");
+
+  	k_thread_create(&tcp_rx_thread, tcp_rx_stack,
+  			K_THREAD_STACK_SIZEOF(tcp_rx_stack),
+  			tcp_rx_thread_fn, NULL, NULL, NULL,
+  			7, 0, K_NO_WAIT);
+  	k_thread_name_set(&tcp_rx_thread, "tcp_rx");
+
+  	return 0;
+  }
+
+init: |
+  /* TCP connection is deferred — call tcp_connect() after WiFi is ready */
+  LOG_INF("TCP client ready (call tcp_connect() after WiFi)");
