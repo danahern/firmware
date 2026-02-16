@@ -18,6 +18,9 @@ Thumbs.db
 .idea/
 .vscode/
 
+# Clangd cache
+.cache/
+
 # Local config (credentials, environment-specific settings)
 local.conf
 
