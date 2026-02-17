@@ -48,3 +48,19 @@ jobs:
           name: twister-results
           path: /tmp/twister-out/twister.xml
           retention-days: 30
+
+  esp-idf-build:
+    name: ESP-IDF Build Verification
+    runs-on: ubuntu-latest
+    container: espressif/idf:v5.5.2
+    strategy:
+      matrix:
+        project: [osal_tests, wifi_prov_tests]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build ${{ matrix.project }}
+        working-directory: esp-idf/${{ matrix.project }}
+        run: |
+          idf.py set-target esp32
+          idf.py build
