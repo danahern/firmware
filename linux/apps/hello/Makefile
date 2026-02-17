@@ -4,8 +4,8 @@
 # Set CROSS_COMPILE or TOOLCHAIN_DIR to override.
 
 # Buildroot toolchain path (inside container after build)
-TOOLCHAIN_DIR ?= /buildroot/output/host/bin
-CROSS_COMPILE ?= $(TOOLCHAIN_DIR)/arm-linux-gnueabihf-
+TOOLCHAIN_DIR ?= /home/builder/buildroot/output/host/bin
+CROSS_COMPILE ?= $(TOOLCHAIN_DIR)/arm-none-linux-gnueabihf-
 
 CC      = $(CROSS_COMPILE)gcc
 STRIP   = $(CROSS_COMPILE)strip

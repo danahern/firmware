@@ -2,8 +2,8 @@
 #
 # Uses Buildroot's toolchain from the build container.
 
-TOOLCHAIN_DIR ?= /buildroot/output/host/bin
-CROSS_COMPILE ?= $(TOOLCHAIN_DIR)/arm-linux-gnueabihf-
+TOOLCHAIN_DIR ?= /home/builder/buildroot/output/host/bin
+CROSS_COMPILE ?= $(TOOLCHAIN_DIR)/arm-none-linux-gnueabihf-
 
 CC      = $(CROSS_COMPILE)gcc
 STRIP   = $(CROSS_COMPILE)strip
