@@ -1,0 +1,42 @@
+menuconfig EAI_IPC
+	bool "EAI IPC - Portable Inter-Processor Communication"
+	help
+	  Endpoint-based messaging abstraction with backends for
+	  Zephyr IPC Service and an in-process loopback for testing.
+
+if EAI_IPC
+
+choice EAI_IPC_BACKEND
+	prompt "IPC Backend"
+	default EAI_IPC_BACKEND_LOOPBACK
+
+config EAI_IPC_BACKEND_ZEPHYR
+	bool "Zephyr IPC Service backend"
+	depends on IPC_SERVICE
+	help
+	  Wraps Zephyr IPC Service (RPMsg/ICMsg). Requires an ipc0
+	  node in devicetree.
+
+config EAI_IPC_BACKEND_LOOPBACK
+	bool "Loopback backend (testing)"
+	help
+	  In-process endpoint pairing by name. Send triggers peer's
+	  on_received synchronously. Works on QEMU and native.
+
+endchoice
+
+config EAI_IPC_MAX_ENDPOINTS
+	int "Maximum number of loopback endpoints"
+	default 8
+	depends on EAI_IPC_BACKEND_LOOPBACK
+	help
+	  Maximum number of endpoints the loopback backend can track.
+
+config EAI_IPC_LOOPBACK_MAX_PACKET_SIZE
+	int "Loopback maximum packet size"
+	default 496
+	depends on EAI_IPC_BACKEND_LOOPBACK
+	help
+	  Maximum payload size for loopback send. Matches typical RPMsg limit.
+
+endif # EAI_IPC

@@ -1,0 +1,3 @@
+name: eai_ipc
+description: "Portable inter-processor communication — endpoint-based messaging with Zephyr IPC Service and loopback backends"
+depends: []

@@ -1,0 +1,7 @@
+common:
+  tags:
+    - eai_ipc
+tests:
+  libraries.eai_ipc:
+    integration_platforms:
+      - qemu_cortex_m3
