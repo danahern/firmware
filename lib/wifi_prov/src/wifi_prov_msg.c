@@ -1,5 +1,6 @@
-#include <zephyr/kernel.h>
 #include <errno.h>
+#include <stdint.h>
+#include <stddef.h>
 #include <string.h>
 
 #include <wifi_prov/wifi_prov_msg.h>

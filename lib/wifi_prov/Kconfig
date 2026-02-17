@@ -1,5 +1,6 @@
 config WIFI_PROV
 	bool "WiFi provisioning library"
+	depends on EAI_LOG
 	help
 	  WiFi provisioning over BLE. Provides a custom GATT service
 	  for scanning WiFi APs, sending credentials, and managing
@@ -8,8 +9,7 @@ config WIFI_PROV
 config WIFI_PROV_BLE
 	bool "BLE GATT service for WiFi provisioning"
 	depends on WIFI_PROV
-	depends on BT
-	depends on BT_PERIPHERAL
+	depends on EAI_BLE
 	help
 	  Custom BLE GATT service with characteristics for scan trigger,
 	  scan results, credentials, status, and factory reset.
@@ -17,23 +17,23 @@ config WIFI_PROV_BLE
 config WIFI_PROV_WIFI
 	bool "WiFi manager (scan/connect)"
 	depends on WIFI_PROV
-	depends on WIFI
-	depends on NETWORKING
+	depends on EAI_WIFI
 	help
-	  WiFi scanning and connection using Zephyr net_mgmt API.
+	  WiFi scanning and connection using eai_wifi abstraction.
 
 config WIFI_PROV_CRED
-	bool "Credential persistence via Settings"
+	bool "Credential persistence"
 	depends on WIFI_PROV
-	depends on SETTINGS
+	depends on EAI_SETTINGS
 	default y if WIFI_PROV
 	help
-	  Store/load/erase WiFi credentials using Zephyr Settings subsystem.
+	  Store/load/erase WiFi credentials using eai_settings.
 
 config WIFI_PROV_AUTO_CONNECT
 	bool "Auto-connect on boot from stored credentials"
 	depends on WIFI_PROV_WIFI
 	depends on WIFI_PROV_CRED
+	depends on EAI_OSAL
 	default y
 	help
 	  If stored credentials exist at boot, automatically connect to WiFi.

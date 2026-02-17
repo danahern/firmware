@@ -1,214 +1,130 @@
-#include <zephyr/kernel.h>
-#include <zephyr/logging/log.h>
-#include <zephyr/bluetooth/bluetooth.h>
-#include <zephyr/bluetooth/conn.h>
-#include <zephyr/bluetooth/gatt.h>
-#include <zephyr/bluetooth/uuid.h>
+/*
+ * WiFi Provisioning BLE — Portable implementation using eai_ble.
+ * Declarative GATT service with 5 characteristics.
+ */
+
+#include <errno.h>
 #include <string.h>
+
+#include <eai_log/eai_log.h>
+#include <eai_ble/eai_ble.h>
 
 #include <wifi_prov/wifi_prov.h>
 #include <wifi_prov/wifi_prov_msg.h>
 
-LOG_MODULE_DECLARE(wifi_prov, LOG_LEVEL_INF);
-
-/* Custom UUID base: a0e4f2b0-XXXX-4c9a-b000-d0e6a7b8c9d0 */
-#define BT_UUID_WIFI_PROV_BASE \
-	BT_UUID_128_ENCODE(0xa0e4f2b0, 0x0001, 0x4c9a, 0xb000, 0xd0e6a7b8c9d0)
-
-#define BT_UUID_WIFI_PROV_SVC        BT_UUID_DECLARE_128(BT_UUID_WIFI_PROV_BASE)
-#define BT_UUID_WIFI_PROV_SCAN_TRIG  BT_UUID_DECLARE_128( \
-	BT_UUID_128_ENCODE(0xa0e4f2b0, 0x0002, 0x4c9a, 0xb000, 0xd0e6a7b8c9d0))
-#define BT_UUID_WIFI_PROV_SCAN_RES   BT_UUID_DECLARE_128( \
-	BT_UUID_128_ENCODE(0xa0e4f2b0, 0x0003, 0x4c9a, 0xb000, 0xd0e6a7b8c9d0))
-#define BT_UUID_WIFI_PROV_CRED       BT_UUID_DECLARE_128( \
-	BT_UUID_128_ENCODE(0xa0e4f2b0, 0x0004, 0x4c9a, 0xb000, 0xd0e6a7b8c9d0))
-#define BT_UUID_WIFI_PROV_STATUS     BT_UUID_DECLARE_128( \
-	BT_UUID_128_ENCODE(0xa0e4f2b0, 0x0005, 0x4c9a, 0xb000, 0xd0e6a7b8c9d0))
-#define BT_UUID_WIFI_PROV_RESET      BT_UUID_DECLARE_128( \
-	BT_UUID_128_ENCODE(0xa0e4f2b0, 0x0006, 0x4c9a, 0xb000, 0xd0e6a7b8c9d0))
-
-#define DEVICE_NAME CONFIG_BT_DEVICE_NAME
-#define DEVICE_NAME_LEN (sizeof(DEVICE_NAME) - 1)
+EAI_LOG_MODULE_DECLARE(wifi_prov, EAI_LOG_LEVEL_INF);
 
 /* Callbacks set by wifi_prov.c */
 static void (*scan_trigger_cb)(void);
 static void (*credentials_rx_cb)(const struct wifi_prov_cred *cred);
 static void (*factory_reset_cb)(void);
 
-static struct bt_conn *current_conn;
-static bool scan_res_notif_enabled;
-static bool status_notif_enabled;
+/* Characteristic indices */
+#define CHAR_SCAN_TRIGGER 0
+#define CHAR_SCAN_RESULTS 1
+#define CHAR_CREDENTIALS  2
+#define CHAR_STATUS       3
+#define CHAR_FACTORY_RESET 4
 
-/* Advertising data */
-static const struct bt_data ad[] = {
-	BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
-	BT_DATA(BT_DATA_NAME_COMPLETE, DEVICE_NAME, DEVICE_NAME_LEN),
-};
+/* --- GATT callbacks --- */
 
-/* Scan response with service UUID */
-static const uint8_t svc_uuid[] = { BT_UUID_WIFI_PROV_BASE };
-static const struct bt_data sd[] = {
-	BT_DATA(BT_DATA_UUID128_ALL, svc_uuid, sizeof(svc_uuid)),
-};
-
-/* --- GATT Write handlers --- */
-
-static ssize_t write_scan_trigger(struct bt_conn *conn,
-				  const struct bt_gatt_attr *attr,
-				  const void *buf, uint16_t len,
-				  uint16_t offset, uint8_t flags)
+static void on_write(uint8_t char_index, const uint8_t *data, uint16_t len)
 {
-	LOG_INF("BLE: scan trigger received");
-	if (scan_trigger_cb) {
-		scan_trigger_cb();
+	switch (char_index) {
+	case CHAR_SCAN_TRIGGER:
+		EAI_LOG_INF("BLE: scan trigger received");
+		if (scan_trigger_cb) {
+			scan_trigger_cb();
+		}
+		break;
+
+	case CHAR_CREDENTIALS: {
+		struct wifi_prov_cred cred = {0};
+
+		if (wifi_prov_msg_decode_credentials(data, len, &cred) < 0) {
+			EAI_LOG_ERR("BLE: invalid credentials message");
+			return;
+		}
+		EAI_LOG_INF("BLE: credentials received (SSID len=%u)",
+			    cred.ssid_len);
+		if (credentials_rx_cb) {
+			credentials_rx_cb(&cred);
+		}
+		break;
 	}
-	return len;
+
+	case CHAR_FACTORY_RESET:
+		if (len < 1 || data[0] != 0xFF) {
+			return;
+		}
+		EAI_LOG_INF("BLE: factory reset triggered");
+		if (factory_reset_cb) {
+			factory_reset_cb();
+		}
+		break;
+
+	default:
+		break;
+	}
 }
 
-static ssize_t write_credentials(struct bt_conn *conn,
-				 const struct bt_gatt_attr *attr,
-				 const void *buf, uint16_t len,
-				 uint16_t offset, uint8_t flags)
+static int on_read(uint8_t char_index, uint8_t *buf, uint16_t *len)
 {
-	/* Prepare write validation — accept without processing */
-	if (flags & BT_GATT_WRITE_FLAG_PREPARE) {
-		return 0;
+	if (char_index != CHAR_STATUS) {
+		return -EINVAL;
 	}
 
-	struct wifi_prov_cred cred = {0};
-
-	if (wifi_prov_msg_decode_credentials(buf, len, &cred) < 0) {
-		LOG_ERR("BLE: invalid credentials message");
-		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
-	}
-
-	LOG_INF("BLE: credentials received (SSID len=%u)", cred.ssid_len);
-	if (credentials_rx_cb) {
-		credentials_rx_cb(&cred);
-	}
-	return len;
-}
-
-static ssize_t write_factory_reset(struct bt_conn *conn,
-				   const struct bt_gatt_attr *attr,
-				   const void *buf, uint16_t len,
-				   uint16_t offset, uint8_t flags)
-{
-	const uint8_t *data = buf;
-
-	if (len < 1 || data[0] != 0xFF) {
-		return BT_GATT_ERR(BT_ATT_ERR_VALUE_NOT_ALLOWED);
-	}
-
-	LOG_INF("BLE: factory reset triggered");
-	if (factory_reset_cb) {
-		factory_reset_cb();
-	}
-	return len;
-}
-
-/* --- GATT Read handler for status --- */
-
-static ssize_t read_status(struct bt_conn *conn,
-			   const struct bt_gatt_attr *attr,
-			   void *buf, uint16_t len, uint16_t offset)
-{
-	uint8_t status_buf[5];
 	uint8_t ip[4] = {0};
 
 	wifi_prov_get_ip(ip);
-	wifi_prov_msg_encode_status(wifi_prov_get_state(), ip,
-				    status_buf, sizeof(status_buf));
+	wifi_prov_msg_encode_status(wifi_prov_get_state(), ip, buf, 5);
+	*len = 5;
 
-	return bt_gatt_attr_read(conn, attr, buf, len, offset,
-				 status_buf, sizeof(status_buf));
+	return 0;
 }
 
-/* --- CCC changed callbacks --- */
-
-static void scan_res_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
+static void on_ble_disconnect(void)
 {
-	scan_res_notif_enabled = (value == BT_GATT_CCC_NOTIFY);
-	LOG_INF("Scan results notifications %s",
-		scan_res_notif_enabled ? "enabled" : "disabled");
+	eai_ble_adv_start(NULL);
 }
 
-static void status_ccc_changed(const struct bt_gatt_attr *attr, uint16_t value)
-{
-	status_notif_enabled = (value == BT_GATT_CCC_NOTIFY);
-	LOG_INF("Status notifications %s",
-		status_notif_enabled ? "enabled" : "disabled");
-}
+/* UUID base: a0e4f2b0-XXXX-4c9a-b000-d0e6a7b8c9d0 */
+#define WIFI_PROV_UUID(suffix) \
+	EAI_BLE_UUID128_INIT(0xa0e4f2b0, suffix, 0x4c9a, 0xb000, \
+			     0xd0e6a7b8c9d0ULL)
 
-/* --- GATT Service Definition --- */
+static const struct eai_ble_char chars[] = {
+	[CHAR_SCAN_TRIGGER] = {
+		.uuid = WIFI_PROV_UUID(0x0002),
+		.properties = EAI_BLE_PROP_WRITE,
+		.on_write = on_write,
+	},
+	[CHAR_SCAN_RESULTS] = {
+		.uuid = WIFI_PROV_UUID(0x0003),
+		.properties = EAI_BLE_PROP_NOTIFY,
+	},
+	[CHAR_CREDENTIALS] = {
+		.uuid = WIFI_PROV_UUID(0x0004),
+		.properties = EAI_BLE_PROP_WRITE,
+		.on_write = on_write,
+	},
+	[CHAR_STATUS] = {
+		.uuid = WIFI_PROV_UUID(0x0005),
+		.properties = EAI_BLE_PROP_READ | EAI_BLE_PROP_NOTIFY,
+		.on_read = on_read,
+		.on_write = NULL,
+	},
+	[CHAR_FACTORY_RESET] = {
+		.uuid = WIFI_PROV_UUID(0x0006),
+		.properties = EAI_BLE_PROP_WRITE,
+		.on_write = on_write,
+	},
+};
 
-BT_GATT_SERVICE_DEFINE(wifi_prov_svc,
-	BT_GATT_PRIMARY_SERVICE(BT_UUID_WIFI_PROV_SVC),
-
-	/* Scan Trigger: Write */
-	BT_GATT_CHARACTERISTIC(BT_UUID_WIFI_PROV_SCAN_TRIG,
-			       BT_GATT_CHRC_WRITE,
-			       BT_GATT_PERM_WRITE,
-			       NULL, write_scan_trigger, NULL),
-
-	/* Scan Results: Notify */
-	BT_GATT_CHARACTERISTIC(BT_UUID_WIFI_PROV_SCAN_RES,
-			       BT_GATT_CHRC_NOTIFY,
-			       BT_GATT_PERM_NONE,
-			       NULL, NULL, NULL),
-	BT_GATT_CCC(scan_res_ccc_changed,
-		     BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
-
-	/* Credentials: Write (prepare write needed for payloads > ATT MTU) */
-	BT_GATT_CHARACTERISTIC(BT_UUID_WIFI_PROV_CRED,
-			       BT_GATT_CHRC_WRITE,
-			       BT_GATT_PERM_WRITE | BT_GATT_PERM_PREPARE_WRITE,
-			       NULL, write_credentials, NULL),
-
-	/* Status: Read + Notify */
-	BT_GATT_CHARACTERISTIC(BT_UUID_WIFI_PROV_STATUS,
-			       BT_GATT_CHRC_READ | BT_GATT_CHRC_NOTIFY,
-			       BT_GATT_PERM_READ,
-			       read_status, NULL, NULL),
-	BT_GATT_CCC(status_ccc_changed,
-		     BT_GATT_PERM_READ | BT_GATT_PERM_WRITE),
-
-	/* Factory Reset: Write */
-	BT_GATT_CHARACTERISTIC(BT_UUID_WIFI_PROV_RESET,
-			       BT_GATT_CHRC_WRITE,
-			       BT_GATT_PERM_WRITE,
-			       NULL, write_factory_reset, NULL),
-);
-
-/* --- Connection callbacks --- */
-
-static void connected(struct bt_conn *conn, uint8_t err)
-{
-	if (err) {
-		LOG_ERR("BLE connection failed (err %u)", err);
-		return;
-	}
-
-	LOG_INF("BLE connected");
-	current_conn = bt_conn_ref(conn);
-}
-
-static void disconnected(struct bt_conn *conn, uint8_t reason)
-{
-	LOG_INF("BLE disconnected (reason 0x%02x)", reason);
-
-	if (current_conn) {
-		bt_conn_unref(current_conn);
-		current_conn = NULL;
-	}
-
-	/* Restart advertising */
-	wifi_prov_ble_start_advertising();
-}
-
-BT_CONN_CB_DEFINE(wifi_prov_conn_callbacks) = {
-	.connected = connected,
-	.disconnected = disconnected,
+static const struct eai_ble_service svc = {
+	.uuid = WIFI_PROV_UUID(0x0001),
+	.chars = chars,
+	.char_count = 5,
 };
 
 /* --- Public API --- */
@@ -224,27 +140,37 @@ void wifi_prov_ble_set_callbacks(void (*on_scan_trigger)(void),
 
 int wifi_prov_ble_init(void)
 {
-	int err = bt_enable(NULL);
+	int ret;
+	static const struct eai_ble_callbacks cbs = {
+		.on_disconnect = on_ble_disconnect,
+	};
 
-	if (err) {
-		LOG_ERR("Bluetooth init failed (err %d)", err);
-		return err;
+	ret = eai_ble_init(&cbs);
+	if (ret) {
+		EAI_LOG_ERR("BLE init failed: %d", ret);
+		return ret;
 	}
 
-	LOG_INF("BLE initialized");
+	ret = eai_ble_gatt_register(&svc);
+	if (ret) {
+		EAI_LOG_ERR("BLE GATT register failed: %d", ret);
+		return ret;
+	}
+
+	EAI_LOG_INF("BLE initialized");
 	return 0;
 }
 
 int wifi_prov_ble_start_advertising(void)
 {
-	int err = bt_le_adv_start(BT_LE_ADV_CONN_FAST_1, ad, ARRAY_SIZE(ad),
-				  sd, ARRAY_SIZE(sd));
-	if (err) {
-		LOG_WRN("Advertising start skipped (err %d)", err);
-		return err;
+	int ret = eai_ble_adv_start(NULL);
+
+	if (ret) {
+		EAI_LOG_WRN("Advertising start skipped (err %d)", ret);
+		return ret;
 	}
 
-	LOG_INF("BLE advertising as \"%s\"", DEVICE_NAME);
+	EAI_LOG_INF("BLE advertising started");
 	return 0;
 }
 
@@ -253,7 +179,7 @@ int wifi_prov_ble_notify_scan_result(const struct wifi_prov_scan_result *result)
 	uint8_t buf[64];
 	int len;
 
-	if (!current_conn || !scan_res_notif_enabled) {
+	if (!eai_ble_is_connected()) {
 		return -ENOTCONN;
 	}
 
@@ -262,8 +188,7 @@ int wifi_prov_ble_notify_scan_result(const struct wifi_prov_scan_result *result)
 		return len;
 	}
 
-	return bt_gatt_notify(current_conn, &wifi_prov_svc.attrs[3],
-			      buf, len);
+	return eai_ble_notify(CHAR_SCAN_RESULTS, buf, len);
 }
 
 int wifi_prov_ble_notify_status(enum wifi_prov_state state,
@@ -271,12 +196,11 @@ int wifi_prov_ble_notify_status(enum wifi_prov_state state,
 {
 	uint8_t buf[5];
 
-	if (!current_conn || !status_notif_enabled) {
+	if (!eai_ble_is_connected()) {
 		return -ENOTCONN;
 	}
 
 	wifi_prov_msg_encode_status(state, ip, buf, sizeof(buf));
 
-	return bt_gatt_notify(current_conn, &wifi_prov_svc.attrs[8],
-			      buf, sizeof(buf));
+	return eai_ble_notify(CHAR_STATUS, buf, sizeof(buf));
 }

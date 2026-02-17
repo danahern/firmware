@@ -1,89 +1,84 @@
-#include <zephyr/kernel.h>
-#include <zephyr/logging/log.h>
-#include <zephyr/settings/settings.h>
+/*
+ * WiFi Provisioning Credentials — Portable implementation using eai_settings.
+ */
+
+#include <eai_log/eai_log.h>
+#include <eai_settings/eai_settings.h>
 #include <string.h>
+#include <errno.h>
 
 #include <wifi_prov/wifi_prov.h>
 
-LOG_MODULE_DECLARE(wifi_prov, LOG_LEVEL_INF);
+EAI_LOG_MODULE_DECLARE(wifi_prov, EAI_LOG_LEVEL_INF);
 
 static struct wifi_prov_cred stored_cred;
 static bool cred_loaded;
 
-static int cred_set(const char *name, size_t len, settings_read_cb read_cb,
-		    void *cb_arg)
+static void load_from_storage(void)
 {
-	if (!strcmp(name, "ssid")) {
-		if (len > WIFI_PROV_SSID_MAX_LEN) {
-			return -EINVAL;
-		}
-		stored_cred.ssid_len = len;
-		int rc = read_cb(cb_arg, stored_cred.ssid, len);
+	size_t actual;
 
-		return rc < 0 ? rc : 0;
+	if (cred_loaded) {
+		return;
 	}
 
-	if (!strcmp(name, "psk")) {
-		if (len > WIFI_PROV_PSK_MAX_LEN) {
-			return -EINVAL;
-		}
-		stored_cred.psk_len = len;
-		int rc = read_cb(cb_arg, stored_cred.psk, len);
-
-		return rc < 0 ? rc : 0;
-	}
-
-	if (!strcmp(name, "sec")) {
-		if (len != sizeof(uint8_t)) {
-			return -EINVAL;
-		}
-		int rc = read_cb(cb_arg, &stored_cred.security, len);
-
-		return rc < 0 ? rc : 0;
-	}
-
-	return -ENOENT;
-}
-
-static int cred_commit(void)
-{
 	cred_loaded = true;
-	return 0;
-}
 
-SETTINGS_STATIC_HANDLER_DEFINE(wifi_prov, "wifi_prov", NULL, cred_set,
-			       cred_commit, NULL);
+	if (eai_settings_get("wifi_prov/ssid", stored_cred.ssid,
+			     sizeof(stored_cred.ssid), &actual) == 0) {
+		stored_cred.ssid_len = actual;
+	}
+
+	if (eai_settings_get("wifi_prov/psk", stored_cred.psk,
+			     sizeof(stored_cred.psk), &actual) == 0) {
+		stored_cred.psk_len = actual;
+	}
+
+	uint8_t sec;
+
+	if (eai_settings_get("wifi_prov/sec", &sec, sizeof(sec),
+			     &actual) == 0) {
+		stored_cred.security = sec;
+	}
+
+	if (stored_cred.ssid_len > 0) {
+		EAI_LOG_INF("Loaded stored credentials (SSID len=%u)",
+			    stored_cred.ssid_len);
+	}
+}
 
 int wifi_prov_cred_store(const struct wifi_prov_cred *cred)
 {
 	int ret;
 
-	if (!cred || cred->ssid_len == 0 || cred->ssid_len > WIFI_PROV_SSID_MAX_LEN) {
+	if (!cred || cred->ssid_len == 0 ||
+	    cred->ssid_len > WIFI_PROV_SSID_MAX_LEN) {
 		return -EINVAL;
 	}
 
-	/* Update in-memory copy first (always works, even on QEMU) */
+	/* Update in-memory copy */
 	memcpy(&stored_cred, cred, sizeof(stored_cred));
 	cred_loaded = true;
 
-	/* Persist to flash if a storage backend is available */
-	ret = settings_save_one("wifi_prov/ssid", cred->ssid, cred->ssid_len);
+	/* Persist to storage */
+	ret = eai_settings_set("wifi_prov/ssid", cred->ssid, cred->ssid_len);
 	if (ret) {
-		LOG_WRN("Failed to persist SSID: %d (in-memory OK)", ret);
+		EAI_LOG_WRN("Failed to persist SSID: %d (in-memory OK)", ret);
 	}
 
-	ret = settings_save_one("wifi_prov/psk", cred->psk, cred->psk_len);
-	if (ret) {
-		LOG_WRN("Failed to persist PSK: %d (in-memory OK)", ret);
+	ret = eai_settings_set("wifi_prov/psk", cred->psk, cred->psk_len);
+	if (ret && cred->psk_len > 0) {
+		EAI_LOG_WRN("Failed to persist PSK: %d (in-memory OK)", ret);
 	}
 
-	ret = settings_save_one("wifi_prov/sec", &cred->security,
-				sizeof(cred->security));
+	ret = eai_settings_set("wifi_prov/sec", &cred->security,
+			       sizeof(cred->security));
 	if (ret) {
-		LOG_WRN("Failed to persist security: %d (in-memory OK)", ret);
+		EAI_LOG_WRN("Failed to persist security: %d (in-memory OK)",
+			    ret);
 	}
 
-	LOG_INF("Credentials stored (SSID len=%u)", cred->ssid_len);
+	EAI_LOG_INF("Credentials stored (SSID len=%u)", cred->ssid_len);
 	return 0;
 }
 
@@ -93,12 +88,7 @@ int wifi_prov_cred_load(struct wifi_prov_cred *cred)
 		return -EINVAL;
 	}
 
-	if (!cred_loaded) {
-		int ret = settings_load_subtree("wifi_prov");
-		if (ret) {
-			return ret;
-		}
-	}
+	load_from_storage();
 
 	if (stored_cred.ssid_len == 0) {
 		return -ENOENT;
@@ -110,24 +100,20 @@ int wifi_prov_cred_load(struct wifi_prov_cred *cred)
 
 int wifi_prov_cred_erase(void)
 {
-	/* Clear in-memory copy first */
 	memset(&stored_cred, 0, sizeof(stored_cred));
 	cred_loaded = true;
 
 	/* Best-effort persistent delete */
-	settings_delete("wifi_prov/ssid");
-	settings_delete("wifi_prov/psk");
-	settings_delete("wifi_prov/sec");
+	eai_settings_delete("wifi_prov/ssid");
+	eai_settings_delete("wifi_prov/psk");
+	eai_settings_delete("wifi_prov/sec");
 
-	LOG_INF("Credentials erased");
+	EAI_LOG_INF("Credentials erased");
 	return 0;
 }
 
 bool wifi_prov_cred_exists(void)
 {
-	if (!cred_loaded) {
-		settings_load_subtree("wifi_prov");
-	}
-
+	load_from_storage();
 	return stored_cred.ssid_len > 0;
 }

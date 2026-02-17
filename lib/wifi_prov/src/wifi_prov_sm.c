@@ -1,10 +1,9 @@
-#include <zephyr/kernel.h>
-#include <zephyr/logging/log.h>
+#include <eai_log/eai_log.h>
 #include <errno.h>
 
 #include <wifi_prov/wifi_prov.h>
 
-LOG_MODULE_DECLARE(wifi_prov, LOG_LEVEL_INF);
+EAI_LOG_MODULE_REGISTER(wifi_prov, EAI_LOG_LEVEL_INF);
 
 static enum wifi_prov_state current_state = WIFI_PROV_STATE_IDLE;
 static wifi_prov_state_cb_t state_cb;
@@ -25,7 +24,7 @@ static int transition(enum wifi_prov_state new_state)
 	enum wifi_prov_state old = current_state;
 
 	current_state = new_state;
-	LOG_INF("State: %d -> %d", old, new_state);
+	EAI_LOG_INF("State: %d -> %d", old, new_state);
 
 	if (state_cb) {
 		state_cb(old, new_state);
@@ -91,6 +90,6 @@ int wifi_prov_sm_process_event(enum wifi_prov_event event)
 		break;
 	}
 
-	LOG_WRN("Invalid transition: state=%d event=%d", current_state, event);
+	EAI_LOG_WRN("Invalid transition: state=%d event=%d", current_state, event);
 	return -EPERM;
 }

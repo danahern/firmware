@@ -1,5 +1,4 @@
 zephyr_library_named(wifi_prov)
-zephyr_library_sources_ifdef(CONFIG_WIFI_PROV src/wifi_prov_stub.c)
 zephyr_library_sources_ifdef(CONFIG_WIFI_PROV src/wifi_prov_msg.c)
 zephyr_library_sources_ifdef(CONFIG_WIFI_PROV src/wifi_prov_sm.c)
 zephyr_library_sources_ifdef(CONFIG_WIFI_PROV_CRED src/wifi_prov_cred.c)

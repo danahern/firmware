@@ -1,20 +1,18 @@
 # WiFi Provision — ESP-IDF
 
-ESP-IDF WiFi provisioning app sharing portable code from `lib/wifi_prov/`. Same BLE GATT protocol as the Zephyr version — macOS Python tools work unchanged against both targets.
+ESP-IDF WiFi provisioning app using portable code from `lib/wifi_prov/`. Same BLE GATT protocol as the Zephyr version — all source files are shared, with platform differences handled by eai_* library backends.
 
 ## Architecture
 
 ```
-main/main.c                         -- app_main(): init NVS, OSAL, wifi_prov, throughput server
+main/main.c                         -- app_main(): wifi_prov_init(), wifi_prov_start(), throughput server
 components/
   eai_osal/                          -- OSAL FreeRTOS backend (compiles from lib/eai_osal/src/freertos/)
-  wifi_prov_common/                  -- Portable sm.c + msg.c (compiles from lib/wifi_prov/src/)
-    shim/zephyr/                     -- Zephyr → ESP-IDF compatibility headers (LOG_*, kernel types)
-  wifi_prov_esp/                     -- Platform-specific implementations:
-    wifi_prov_esp.c                  --   Orchestrator (OSAL work queues)
-    wifi_prov_ble_esp.c              --   BLE GATT service (NimBLE)
-    wifi_prov_wifi_esp.c             --   WiFi scan/connect (esp_wifi)
-    wifi_prov_cred_esp.c             --   Credential persistence (NVS)
+  eai_ble/                           -- BLE NimBLE backend (compiles from lib/eai_ble/src/freertos/)
+  eai_wifi/                          -- WiFi ESP-IDF backend (compiles from lib/eai_wifi/src/freertos/)
+  eai_settings/                      -- Settings NVS backend (compiles from lib/eai_settings/src/freertos/)
+  eai_log/                           -- Logging (header-only, ESP_LOG* backend)
+  wifi_prov_common/                  -- All 6 portable wifi_prov source files from lib/wifi_prov/src/
   throughput_server/                 -- TCP throughput server (POSIX sockets + OSAL thread)
 ```
 
@@ -22,14 +20,17 @@ components/
 
 ```
 main
-  ├── wifi_prov_esp
-  │   ├── bt (NimBLE)
-  │   ├── esp_wifi
-  │   ├── esp_event
-  │   ├── esp_netif
-  │   ├── nvs_flash
-  │   ├── wifi_prov_common
-  │   │   └── log
+  ├── wifi_prov_common
+  │   ├── eai_log
+  │   ├── eai_ble
+  │   │   ├── bt (NimBLE)
+  │   │   └── eai_osal
+  │   ├── eai_wifi
+  │   │   ├── esp_wifi
+  │   │   ├── esp_event
+  │   │   └── esp_netif
+  │   ├── eai_settings
+  │   │   └── nvs_flash
   │   └── eai_osal
   │       └── freertos
   └── throughput_server
@@ -39,10 +40,7 @@ main
 
 ## Code Sharing Strategy
 
-Components reference `lib/` via relative paths — no code duplication:
-- `eai_osal`: compiles `lib/eai_osal/src/freertos/*.c`
-- `wifi_prov_common`: compiles `lib/wifi_prov/src/wifi_prov_sm.c` + `wifi_prov_msg.c`
-- Zephyr shim headers in `wifi_prov_common/shim/` map `LOG_*` → `ESP_LOG*` and provide `errno.h`/`stdint.h`
+ALL wifi_prov source files are compiled from `lib/wifi_prov/src/` — no platform-specific code in this project. Platform differences are handled by the eai_* component wrappers, each compiling the FreeRTOS/ESP-IDF backend from the corresponding `lib/eai_*/src/freertos/` directory.
 
 ## Build & Flash
 
@@ -68,19 +66,20 @@ idf.py -p /dev/cu.usbserial-110 flash monitor
 
 ## Platform-Specific Notes
 
-- **WiFi power management**: Modem sleep blocks incoming TCP/ICMP. Disabled in `wifi_prov_wifi_esp.c`.
-- **Scan results**: ESP-IDF delivers scan results in batch via `WIFI_EVENT_SCAN_DONE` + `esp_wifi_scan_get_ap_records()`, unlike Zephyr's per-result callbacks. `scan_done_callback` fires `WIFI_PROV_EVT_SCAN_DONE`.
-- **WiFi disconnect semantics**: `WIFI_EVENT_STA_DISCONNECTED` fires for both auth failure and real disconnect. Orchestrator checks current state to differentiate.
-- **BLE GATT**: NimBLE service uses same UUIDs and wire format as Zephyr `bt_gatt`. Factory reset requires writing `0xFF`.
-- **Credentials**: NVS namespace `wifi_prov`, keys: `ssid`, `psk`, `sec`. Returns `-ENOENT` when no credentials stored.
-- **OSAL work queue stack**: System work queue needs 4096 bytes (not 2048) for WiFi API calls on ESP32.
+These are handled by the eai_* backends, not by wifi_prov code:
+
+- **WiFi power management**: Modem sleep blocks incoming TCP/ICMP. Disabled in eai_wifi FreeRTOS backend.
+- **Scan results**: ESP-IDF delivers scan results in batch via `WIFI_EVENT_SCAN_DONE`. eai_wifi iterates and delivers per-result callbacks.
+- **BLE GATT**: NimBLE service uses same UUIDs and wire format as Zephyr `bt_gatt`. eai_ble handles the mapping.
+- **Credentials**: eai_settings NVS backend splits "wifi_prov/ssid" into NVS namespace "wifi_prov" + key "ssid".
+- **OSAL work queue stack**: System work queue needs 4096 bytes for WiFi API calls on ESP32.
 
 ## Testing
 
 22 unit tests in `firmware/esp-idf/wifi_prov_tests/`:
 - 8 message encode/decode
 - 9 state machine transitions
-- 5 credential store (NVS)
+- 5 credential store (via eai_settings NVS backend)
 
 ```bash
 cd firmware/esp-idf/wifi_prov_tests

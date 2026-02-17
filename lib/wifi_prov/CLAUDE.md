@@ -1,18 +1,19 @@
 # WiFi Provisioning Library
 
-Shared library for WiFi provisioning over BLE. Provides a custom GATT service, WiFi management, credential persistence, and a state machine for the provisioning flow.
+Shared library for WiFi provisioning over BLE. Provides a custom GATT service, WiFi management, credential persistence, and a state machine for the provisioning flow. Fully portable — uses eai_* abstraction libraries for all platform interactions.
 
 ## Architecture
 
 ```
-wifi_prov.c          -- Orchestrator: wires BLE, WiFi, state machine, credential store
-wifi_prov_ble.c      -- BLE GATT service (5 characteristics)
-wifi_prov_wifi.c     -- WiFi scan/connect via net_mgmt
-wifi_prov_sm.c       -- State machine (6 states, 8 events)
-wifi_prov_cred.c     -- Credential persistence via Zephyr Settings
-wifi_prov_msg.c      -- Wire format encode/decode
-wifi_prov_stub.c     -- LOG_MODULE_REGISTER only
+wifi_prov.c          -- Orchestrator: wires BLE, WiFi, state machine, credential store (eai_osal)
+wifi_prov_ble.c      -- BLE GATT service: 5 characteristics (eai_ble declarative)
+wifi_prov_wifi.c     -- WiFi scan/connect (eai_wifi)
+wifi_prov_sm.c       -- State machine: 6 states, 8 events (eai_log)
+wifi_prov_cred.c     -- Credential persistence (eai_settings)
+wifi_prov_msg.c      -- Wire format encode/decode (standard C, no platform deps)
 ```
+
+All 6 source files compile identically on Zephyr and ESP-IDF. Platform-specific code lives only in the eai_* library backends.
 
 ## Public API
 
@@ -45,11 +46,11 @@ int wifi_prov_sm_process_event(enum wifi_prov_event event);
 
 | Option | Depends On | Description |
 |--------|-----------|-------------|
-| `CONFIG_WIFI_PROV` | - | Enable library |
-| `CONFIG_WIFI_PROV_BLE` | BT, BT_PERIPHERAL | BLE GATT service |
-| `CONFIG_WIFI_PROV_WIFI` | WIFI, NETWORKING | WiFi scan/connect |
-| `CONFIG_WIFI_PROV_CRED` | SETTINGS | Credential persistence |
-| `CONFIG_WIFI_PROV_AUTO_CONNECT` | WIFI_PROV_WIFI, WIFI_PROV_CRED | Auto-connect on boot |
+| `CONFIG_WIFI_PROV` | EAI_LOG | Enable library |
+| `CONFIG_WIFI_PROV_BLE` | WIFI_PROV, EAI_BLE | BLE GATT service |
+| `CONFIG_WIFI_PROV_WIFI` | WIFI_PROV, EAI_WIFI | WiFi scan/connect |
+| `CONFIG_WIFI_PROV_CRED` | WIFI_PROV, EAI_SETTINGS | Credential persistence |
+| `CONFIG_WIFI_PROV_AUTO_CONNECT` | WIFI_PROV_WIFI, WIFI_PROV_CRED, EAI_OSAL | Auto-connect on boot |
 
 ## BLE GATT Service
 
@@ -95,13 +96,24 @@ CONNECTED --SCAN_TRIGGER--> SCANNING (re-scan while connected)
 - 9 state machine transition tests
 
 ```bash
-# Via twister (recommended)
-python3 zephyr/scripts/twister -T zephyr-apps/lib/wifi_prov -p qemu_cortex_m3 -v
-
-# Note: zephyr-build.run_tests() MCP may fail due to pyenv PATH issues.
-# Use twister directly with clean PATH if needed.
+# Via Docker (recommended)
+docker run --rm -v $PWD/..:/workspace -w /workspace/firmware \
+  -e ZEPHYR_TOOLCHAIN_VARIANT=zephyr ghcr.io/zephyrproject-rtos/ci:v0.28.7 \
+  bash -c '/opt/toolchains/zephyr-sdk-*/setup.sh -c 2>/dev/null && \
+  west twister -T lib/wifi_prov -p qemu_cortex_m3 -v --inline-logs -O /workspace/.cache/twister'
 ```
 
 ## Build
 
 The orchestrator (`wifi_prov.c`) is only built when both `CONFIG_WIFI_PROV_BLE` and `CONFIG_WIFI_PROV_WIFI` are enabled. Individual modules can be used independently (e.g., cred store + msg for testing on QEMU).
+
+## eai_* Dependencies
+
+| Module | eai_* Libraries Used |
+|--------|---------------------|
+| wifi_prov.c | eai_osal (work queues), eai_settings (init), eai_log |
+| wifi_prov_ble.c | eai_ble (GATT service), eai_log |
+| wifi_prov_wifi.c | eai_wifi (scan/connect), eai_log |
+| wifi_prov_cred.c | eai_settings (key-value store), eai_log |
+| wifi_prov_sm.c | eai_log |
+| wifi_prov_msg.c | (none — standard C only) |
