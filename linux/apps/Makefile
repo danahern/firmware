@@ -4,7 +4,7 @@
 #   make                        # STM32MP1 (default)
 #   make BOARD=alif-e7          # Alif E7
 
-APPS = hello rpmsg_echo
+APPS = hello rpmsg_echo display_test
 
 .PHONY: all clean install $(APPS)
 

@@ -6,6 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # No Buildroot needed — uses distro-provided arm-linux-gnueabihf-gcc
 RUN apt-get update && apt-get install -y \
     crossbuild-essential-armhf \
+    libdrm-dev:armhf \
     file \
     make \
     && rm -rf /var/lib/apt/lists/*
