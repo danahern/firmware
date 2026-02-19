@@ -1,0 +1,52 @@
+menuconfig EAI_AUDIO
+	bool "EAI Audio - Portable Audio HAL"
+	help
+	  Portable audio abstraction layer mirroring Android Audio HAL concepts.
+	  Provides port enumeration, stream I/O, gain control, routing, and
+	  optional software mixer. Backend is selected at compile time.
+
+if EAI_AUDIO
+
+choice EAI_AUDIO_BACKEND
+	prompt "Audio Backend"
+	default EAI_AUDIO_BACKEND_ZEPHYR
+
+config EAI_AUDIO_BACKEND_ZEPHYR
+	bool "Zephyr I2S backend"
+	depends on I2S
+	help
+	  Uses Zephyr I2S API for audio I/O. Discovers ports via devicetree.
+
+endchoice
+
+config EAI_AUDIO_MIXER
+	bool "Software mixer (mini-flinger)"
+	default y
+	depends on EAI_OSAL
+	help
+	  Lightweight software mixer that combines multiple output streams
+	  before sending to hardware. Uses an eai_osal thread for mixing.
+
+config EAI_AUDIO_MIXER_SLOTS
+	int "Maximum mixer stream slots"
+	default 4
+	range 2 8
+	depends on EAI_AUDIO_MIXER
+	help
+	  Number of pre-allocated output stream slots for mixing.
+
+config EAI_AUDIO_MAX_PORTS
+	int "Maximum audio ports"
+	default 4
+	range 2 16
+	help
+	  Maximum number of audio ports (speakers, mics, I2S, etc.).
+
+config EAI_AUDIO_MAX_ROUTES
+	int "Maximum audio routes"
+	default 4
+	range 1 16
+	help
+	  Maximum number of simultaneous source-to-sink routes.
+
+endif # EAI_AUDIO

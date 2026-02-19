@@ -124,6 +124,7 @@ Each library has its own `CLAUDE.md` with full usage docs. Read it before using.
 |---------|---------|
 | `lib/crash_log/` | Boot-time coredump detection, shell commands (`crash check/info/dump/clear`), auto-report via RTT. Config overlays in `conf/`. |
 | `lib/device_shell/` | Board management shell commands (`board info/uptime/reset`) |
+| `lib/eai_audio/` | Portable Audio HAL — Android Audio HAL concepts mapped to embedded. Port enumeration, stream I/O, gain, routing, mini-flinger mixer. See `lib/eai_audio/CLAUDE.md`. |
 | `lib/eai_ble/` | Portable BLE GATT abstraction — declarative service definition with Zephyr BT, NimBLE, and POSIX stub backends. See `lib/eai_ble/CLAUDE.md`. |
 | `lib/eai_ipc/` | Portable inter-processor communication — endpoint-based messaging with Zephyr IPC Service and loopback backends. See `lib/eai_ipc/CLAUDE.md`. |
 | `lib/eai_log/` | Portable logging macros — header-only, compiles to Zephyr LOG_*, ESP-IDF ESP_LOG*, or POSIX fprintf. See `lib/eai_log/CLAUDE.md`. |
@@ -167,6 +168,12 @@ Artifacts land in `apps/<app>/build/<board>/zephyr/zephyr.{elf,hex}`. Flash with
 | `libraries.eai_osal` | qemu_cortex_m3 | 44 tests (all OSAL primitives + work queues) |
 | `libraries.eai_settings` | mps2/an385 | 14 tests (set/get/delete/exists, edge cases) |
 | `libraries.wifi_prov` | qemu_cortex_m3 | 22 tests (credentials, message encode/decode, state machine) |
+
+### Native Tests (POSIX)
+
+| Library | Tests | Command |
+|---------|-------|---------|
+| `lib/eai_audio` | 43 tests (core API + mixer) | `cd lib/eai_audio/tests/native && cmake -B build && cmake --build build && ./build/eai_audio_tests` |
 
 ### ESP-IDF Tests
 
