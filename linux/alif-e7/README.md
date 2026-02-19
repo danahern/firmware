@@ -62,10 +62,29 @@ Uses `MACHINE = "devkit-e8"` (the `devkit-e7.conf` was superseded in the scarthg
 
 ### Flashing
 
-Flashing requires Alif's SETOOLS/ATOC to package images for the Secure Enclave boot chain. This differs from STM32MP1's simple `dd` to SD card.
+Flashing requires Alif's proprietary SETOOLS to generate an ATOC (Application Table of Contents) and write it + binary images to MRAM via the Secure Enclave's UART. This differs from STM32MP1's simple `dd` to SD card.
 
+**Setup:** Download SETOOLS from [alifsemi.com](https://alifsemi.com/support/kits/ensemble-e7devkit/) and extract to `tools/setools/` (gitignored). See `setools/README.md` for full instructions.
+
+**Quick flash:**
+```bash
+# Connect PRG_USB, then:
+cd firmware/linux/alif-e7/setools
+./flash-e7.sh              # Copy artifacts from Docker + generate ATOC + flash
 ```
-# TBD — requires SETOOLS validation with actual hardware
+
+**ATOC config:** `setools/linux-boot-e7.json` defines the memory map (tracked in git). The helper script copies it into the SETOOLS tree before running `app-gen-toc`.
+
+| Image | MRAM Address |
+|-------|-------------|
+| bl32.bin (TF-A) | 0x80002000 |
+| devkit-e8.dtb | 0x80010000 |
+| xipImage | 0x80020000 |
+| cramfs-xip rootfs | 0x80380000 |
+
+**Serial console:** Monitor boot on the second serial port from PRG_USB:
+```bash
+screen /dev/cu.usbmodem<SECOND_PORT> 115200
 ```
 
 ## App Cross-Compilation
