@@ -125,6 +125,9 @@ Each library has its own `CLAUDE.md` with full usage docs. Read it before using.
 | `lib/crash_log/` | Boot-time coredump detection, shell commands (`crash check/info/dump/clear`), auto-report via RTT. Config overlays in `conf/`. |
 | `lib/device_shell/` | Board management shell commands (`board info/uptime/reset`) |
 | `lib/eai_audio/` | Portable Audio HAL — Android Audio HAL concepts mapped to embedded. Port enumeration, stream I/O, gain, routing, mini-flinger mixer. See `lib/eai_audio/CLAUDE.md`. |
+| `lib/eai_sensor/` | Portable Sensor HAL — Android ISensors concepts. Device enumeration, session-based streaming with callbacks and polling. Milliunits for all physical values. See `lib/eai_sensor/CLAUDE.md`. |
+| `lib/eai_display/` | Portable Display HAL — Android HWComposer simplified. Layer-based compositing, brightness, vsync. See `lib/eai_display/CLAUDE.md`. |
+| `lib/eai_input/` | Portable Input HAL — Android EventHub simplified. Touch, button, encoder, keyboard, gesture devices. Callback + polling modes. See `lib/eai_input/CLAUDE.md`. |
 | `lib/eai_ble/` | Portable BLE GATT abstraction — declarative service definition with Zephyr BT, NimBLE, and POSIX stub backends. See `lib/eai_ble/CLAUDE.md`. |
 | `lib/eai_ipc/` | Portable inter-processor communication — endpoint-based messaging with Zephyr IPC Service and loopback backends. See `lib/eai_ipc/CLAUDE.md`. |
 | `lib/eai_log/` | Portable logging macros — header-only, compiles to Zephyr LOG_*, ESP-IDF ESP_LOG*, or POSIX fprintf. See `lib/eai_log/CLAUDE.md`. |
@@ -174,6 +177,9 @@ Artifacts land in `apps/<app>/build/<board>/zephyr/zephyr.{elf,hex}`. Flash with
 | Library | Tests | Command |
 |---------|-------|---------|
 | `lib/eai_audio` | 43 tests (core API + mixer) | `cd lib/eai_audio/tests/native && cmake -B build && cmake --build build && ./build/eai_audio_tests` |
+| `lib/eai_sensor` | 25 tests (devices, sessions, read, callback, flush) | `cd lib/eai_sensor/tests/native && cmake -B build && cmake --build build && ./build/eai_sensor_tests` |
+| `lib/eai_display` | 22 tests (devices, layers, write, commit, brightness, vsync) | `cd lib/eai_display/tests/native && cmake -B build && cmake --build build && ./build/eai_display_tests` |
+| `lib/eai_input` | 17 tests (devices, polling, callback, events) | `cd lib/eai_input/tests/native && cmake -B build && cmake --build build && ./build/eai_input_tests` |
 
 ### ESP-IDF Tests
 

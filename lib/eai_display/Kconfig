@@ -1,0 +1,36 @@
+menuconfig EAI_DISPLAY
+	bool "EAI Display - Portable Display HAL"
+	help
+	  Portable display abstraction layer inspired by Android HWComposer.
+	  Provides device enumeration, layer-based compositing, brightness
+	  control, and vsync. Backend is selected at compile time.
+
+if EAI_DISPLAY
+
+choice EAI_DISPLAY_BACKEND
+	prompt "Display Backend"
+	default EAI_DISPLAY_BACKEND_ZEPHYR
+
+config EAI_DISPLAY_BACKEND_ZEPHYR
+	bool "Zephyr Display API backend"
+	depends on DISPLAY
+	help
+	  Uses Zephyr Display API. Discovers displays via devicetree.
+
+endchoice
+
+config EAI_DISPLAY_MAX_DEVICES
+	int "Maximum display devices"
+	default 2
+	range 1 4
+	help
+	  Maximum number of display devices.
+
+config EAI_DISPLAY_MAX_LAYERS
+	int "Maximum layers per display"
+	default 4
+	range 1 8
+	help
+	  Maximum number of simultaneously open layers.
+
+endif # EAI_DISPLAY

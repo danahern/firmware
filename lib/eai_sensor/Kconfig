@@ -1,0 +1,36 @@
+menuconfig EAI_SENSOR
+	bool "EAI Sensor - Portable Sensor HAL"
+	help
+	  Portable sensor abstraction layer mirroring Android ISensors concepts.
+	  Provides device enumeration, session-based streaming with callbacks
+	  and polling, configurable rate. Backend is selected at compile time.
+
+if EAI_SENSOR
+
+choice EAI_SENSOR_BACKEND
+	prompt "Sensor Backend"
+	default EAI_SENSOR_BACKEND_ZEPHYR
+
+config EAI_SENSOR_BACKEND_ZEPHYR
+	bool "Zephyr Sensor API backend"
+	depends on SENSOR
+	help
+	  Uses Zephyr Sensor API. Discovers sensors via devicetree.
+
+endchoice
+
+config EAI_SENSOR_MAX_DEVICES
+	int "Maximum sensor devices"
+	default 8
+	range 1 32
+	help
+	  Maximum number of sensor devices.
+
+config EAI_SENSOR_MAX_SESSIONS
+	int "Maximum concurrent sensor sessions"
+	default 4
+	range 1 16
+	help
+	  Maximum number of simultaneously open sensor sessions.
+
+endif # EAI_SENSOR

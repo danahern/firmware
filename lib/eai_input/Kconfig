@@ -1,0 +1,30 @@
+menuconfig EAI_INPUT
+	bool "EAI Input - Portable Input HAL"
+	help
+	  Portable input abstraction layer inspired by Android EventHub.
+	  Provides device enumeration, event callback and polling modes.
+	  Supports touch, button, encoder, keyboard, and gesture devices.
+	  Backend is selected at compile time.
+
+if EAI_INPUT
+
+choice EAI_INPUT_BACKEND
+	prompt "Input Backend"
+	default EAI_INPUT_BACKEND_ZEPHYR
+
+config EAI_INPUT_BACKEND_ZEPHYR
+	bool "Zephyr Input subsystem backend"
+	depends on INPUT
+	help
+	  Uses Zephyr Input subsystem. Discovers devices via devicetree.
+
+endchoice
+
+config EAI_INPUT_MAX_DEVICES
+	int "Maximum input devices"
+	default 8
+	range 1 16
+	help
+	  Maximum number of input devices.
+
+endif # EAI_INPUT
