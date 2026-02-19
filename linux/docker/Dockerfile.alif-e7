@@ -4,7 +4,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # System cross-compiler for Cortex-A32 (armhf)
 # No Buildroot needed — uses distro-provided arm-linux-gnueabihf-gcc
-RUN apt-get update && apt-get install -y \
+RUN dpkg --add-architecture armhf && \
+    apt-get update && apt-get install -y \
     crossbuild-essential-armhf \
     libdrm-dev:armhf \
     file \
