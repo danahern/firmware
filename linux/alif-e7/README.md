@@ -51,6 +51,8 @@ docker exec yocto-build bash -c "
 
 Uses `MACHINE = "devkit-e8"` (the `devkit-e7.conf` was superseded in the scarthgap branch). The E8 config still targets E7 hardware (`TF-A_PLATFORM = "devkit_e7"`).
 
+Uses `DISTRO = "apss-tiny"` (musl libc + poky-tiny + busybox init) to produce a cramfs-xip rootfs that fits in 5.7MB MRAM. The `poky` distro's glibc-based image is 8.5MB+ — too large.
+
 ### Output Artifacts
 
 | File | Description |

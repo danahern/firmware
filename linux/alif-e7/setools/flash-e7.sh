@@ -17,18 +17,19 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-SETOOLS_DIR="$WORKSPACE_ROOT/tools/setools/app-release-exec"
+SETOOLS_DIR="$WORKSPACE_ROOT/tools/setools"
 IMAGES_DIR="$SETOOLS_DIR/build/images"
 CONFIG_DIR="$SETOOLS_DIR/build/config"
-DOCKER_IMAGE_PATH="/home/builder/yocto/build-alif-e7/tmp/deploy/images/devkit-e8"
+DOCKER_IMAGE_PATH="/home/builder/yocto/build-alif-e7/tmp/deploy/images/appkit-e8"
 CONTAINER_NAME="yocto-build"
 
 ARTIFACTS=(
     "bl32.bin"
     "xipImage"
-    "devkit-e8.dtb"
-    "core-image-minimal-devkit-e8.cramfs-xip"
+    "appkit-e8.dtb"
 )
+CRAMFS_SYMLINK="core-image-minimal-appkit-e8.rootfs.cramfs-xip"
+CRAMFS_LOCAL="core-image-minimal-appkit-e8.cramfs-xip"
 
 copy_artifacts() {
     echo "=== Copying Yocto artifacts from Docker ==="
@@ -45,6 +46,10 @@ copy_artifacts() {
         echo "  Copying $artifact..."
         docker cp "$CONTAINER_NAME:$DOCKER_IMAGE_PATH/$artifact" "$IMAGES_DIR/$artifact"
     done
+
+    # cramfs-xip uses a timestamped name with a symlink — resolve and copy
+    echo "  Copying cramfs-xip rootfs..."
+    docker cp "$CONTAINER_NAME:$DOCKER_IMAGE_PATH/$CRAMFS_SYMLINK" "$IMAGES_DIR/$CRAMFS_LOCAL"
 
     # Copy ATOC config from tracked location
     echo "  Copying ATOC config..."
@@ -69,7 +74,11 @@ flash_device() {
 
     echo "=== Writing to MRAM via SE-UART ==="
     echo "NOTE: Close any terminal sessions on the SE-UART port first!"
-    ./app-write-mram -d
+    echo "NOTE: PRG_USB micro-USB must be connected (separate from J-Link USB)"
+    # -p: pad images to 16-byte alignment (required by MRAM controller)
+    # -v: verbose output
+    # Without -p, tool silently exits (os._exit(1)) on unaligned images
+    ./app-write-mram -v -p
 }
 
 # Parse args

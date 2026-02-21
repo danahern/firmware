@@ -4,13 +4,16 @@ Flash Linux images to E7 MRAM via Alif's Secure Enclave UART.
 
 ## Prerequisites
 
-1. **SETOOLS**: Download Alif Security Toolkit v1.109.00+ (macOS) from [alifsemi.com/support/kits/ensemble-e7devkit/](https://alifsemi.com/support/kits/ensemble-e7devkit/). Extract to `tools/setools/` (workspace root). Registration required.
+1. **SETOOLS**: Download Alif Security Toolkit v1.107.00+ (macOS arm64) from [alifsemi.com/support/kits/ensemble-e7devkit/](https://alifsemi.com/support/kits/ensemble-e7devkit/). Extract to `tools/setools/` (workspace root). Registration required. Remove quarantine: `xattr -r -d com.apple.quarantine tools/setools/`
 
-2. **Hardware**: Connect micro-USB to **PRG_USB** port (closest to board corner). This provides power + two serial ports:
+2. **Device config**: Run `tools/setools/tools-config` to select your device part and revision.
+
+3. **Hardware**: Connect micro-USB to **PRG_USB** port (closest to board corner). This provides power + two serial ports:
    - First port = SE-UART (SETOOLS programming)
    - Second port = UART2 (Linux console, 115200 baud)
+   - **Note**: The J-Link USB port provides a CDC serial port but it is NOT the SE-UART. You need PRG_USB specifically.
 
-3. **Docker**: Yocto build container (`yocto-build`) with completed E7 build.
+4. **Docker**: Yocto build container (`yocto-build`) with completed E7 build (DISTRO=apss-tiny).
 
 ## Quick Start
 
@@ -49,7 +52,7 @@ Identify ports after connecting PRG_USB:
 ls /dev/cu.usbmodem*    # or ls /dev/cu.usbserial*
 ```
 
-Update `tools/setools/app-release-exec/isp_config_data.cfg` with the **first** port (SE-UART).
+The tool auto-discovers serial ports. If multiple ports exist, it will prompt for selection.
 
 Monitor Linux console on the **second** port:
 ```bash
@@ -58,7 +61,10 @@ screen /dev/cu.usbmodem<SECOND_PORT> 115200
 
 ## Troubleshooting
 
-- **`app-write-mram` fails**: Close any terminal sessions on the SE-UART port first (only one process can use it).
+- **`app-write-mram` silent exit (no output)**: Always use `-p` flag. Without it, the tool calls `os._exit(1)` silently when images aren't 16-byte aligned.
+- **`-i` FileNotFoundError**: Paths must start with `../` (tool strips first 3 chars for legacy `bin/` directory compat). Example: `./app-write-mram -v -p -i "../build/images/bl32.bin 0x80002000"`
+- **"Target did not respond"**: Wrong serial port. Verify PRG_USB is connected (not just J-Link USB). The J-Link CDC port (`/dev/cu.usbmodem*` with SEGGER serial number) cannot communicate with the Secure Enclave.
+- **macOS quarantine**: If tools fail to run, remove quarantine: `xattr -r -d com.apple.quarantine tools/setools/`
+- **`app-write-mram` hangs on port**: Close any terminal sessions on the SE-UART port first (only one process can use it).
 - **No serial ports**: Check PRG_USB cable. DevKit jumper J26: pins 1-3 and 2-4 connected.
-- **ATOC generation fails**: Verify JSON field names match SETOOLS docs. The `linux-boot-e7.json` template may need adjustment for A32 cpu_id values.
 - **Boot hangs**: Monitor console UART for TF-A output. If no output at all, SETOOLS may not have written correctly — try `app-write-mram` again.

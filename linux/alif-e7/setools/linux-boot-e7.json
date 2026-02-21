@@ -1,33 +1,38 @@
 {
-    "_comment": "ATOC config for Alif E7 Linux boot. Addresses from devkit-e8.conf (SMP=1, BASE_IMAGE=1).",
-    "_note": "Field names (cpu_id, flags) are placeholders — confirm from SETOOLS documentation after download.",
-
+    "DEVICE": {
+        "disabled": false,
+        "binary": "app-device-config.json",
+        "version": "0.5.00",
+        "signed": true
+    },
     "TFA": {
+        "disabled": false,
         "binary": "bl32.bin",
+        "version": "1.0.0",
         "mramAddress": "0x80002000",
         "cpu_id": "A32_0",
         "flags": ["boot"],
         "signed": false
     },
     "DTB": {
-        "binary": "devkit-e8.dtb",
+        "disabled": false,
+        "binary": "appkit-e8.dtb",
+        "version": "1.0.0",
         "mramAddress": "0x80010000",
-        "cpu_id": "A32_0",
-        "flags": [],
         "signed": false
     },
     "KERNEL": {
+        "disabled": false,
         "binary": "xipImage",
+        "version": "1.0.0",
         "mramAddress": "0x80020000",
-        "cpu_id": "A32_0",
-        "flags": [],
         "signed": false
     },
     "ROOTFS": {
-        "binary": "core-image-minimal-devkit-e8.cramfs-xip",
+        "disabled": false,
+        "binary": "core-image-minimal-appkit-e8.cramfs-xip",
+        "version": "1.0.0",
         "mramAddress": "0x80380000",
-        "cpu_id": "A32_0",
-        "flags": [],
         "signed": false
     }
 }
