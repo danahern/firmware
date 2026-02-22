@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 #
-# flash-e7.sh — Copy Yocto artifacts from Docker + run SETOOLS to flash E7
+# flash-e7.sh — Copy Yocto artifacts from Docker + flash E7 MRAM
 #
 # Prerequisites:
-#   1. SETOOLS installed at ../../tools/setools/ (from workspace root: tools/setools/)
-#   2. Docker container "yocto-build" running (or volume "yocto-data" accessible)
-#   3. PRG_USB connected, SE-UART port identified
+#   1. SETOOLS installed at tools/setools/ (from workspace root)
+#   2. Docker container "alif-apss-build" running with completed build
+#   3. PRG_USB connected, board in maintenance mode
 #
 # Usage:
-#   ./flash-e7.sh [--copy-only | --flash-only]
-#     (no args)    = copy artifacts + generate ATOC + flash
-#     --copy-only  = only copy artifacts from Docker
-#     --flash-only = only run app-gen-toc + app-write-mram (artifacts already in place)
+#   ./flash-e7.sh                  # copy + gen-toc + flash
+#   ./flash-e7.sh --copy-only      # only copy artifacts from Docker
+#   ./flash-e7.sh --flash-only     # only flash (artifacts already in place)
+#   ./flash-e7.sh --maintenance    # enter maintenance mode + flash
 
 set -euo pipefail
 
@@ -20,16 +20,17 @@ WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 SETOOLS_DIR="$WORKSPACE_ROOT/tools/setools"
 IMAGES_DIR="$SETOOLS_DIR/build/images"
 CONFIG_DIR="$SETOOLS_DIR/build/config"
-DOCKER_IMAGE_PATH="/home/builder/yocto/build-alif-e7/tmp/deploy/images/appkit-e8"
-CONTAINER_NAME="yocto-build"
+DOCKER_IMAGE_PATH="/home/apssbuilder/build-data/build-appkit-e7/tmp/deploy/images/appkit-e7"
+CONTAINER_NAME="alif-apss-build"
 
 ARTIFACTS=(
     "bl32.bin"
     "xipImage"
-    "appkit-e8.dtb"
+    "appkit-e7.dtb"
 )
-CRAMFS_SYMLINK="core-image-minimal-appkit-e8.rootfs.cramfs-xip"
-CRAMFS_LOCAL="core-image-minimal-appkit-e8.cramfs-xip"
+# cramfs-xip has a timestamped name — resolve the symlink target
+CRAMFS_DOCKER="alif-tiny-image-appkit-e7.cramfs-xip"
+CRAMFS_LOCAL="alif-tiny-image-appkit-e7.cramfs-xip"
 
 copy_artifacts() {
     echo "=== Copying Yocto artifacts from Docker ==="
@@ -44,41 +45,27 @@ copy_artifacts() {
 
     for artifact in "${ARTIFACTS[@]}"; do
         echo "  Copying $artifact..."
-        docker cp "$CONTAINER_NAME:$DOCKER_IMAGE_PATH/$artifact" "$IMAGES_DIR/$artifact"
+        # Resolve symlinks by reading the link target
+        REAL_NAME=$(docker exec "$CONTAINER_NAME" readlink -f "$DOCKER_IMAGE_PATH/$artifact" 2>/dev/null | xargs basename)
+        docker cp "$CONTAINER_NAME:$DOCKER_IMAGE_PATH/$REAL_NAME" "$IMAGES_DIR/$artifact"
     done
 
-    # cramfs-xip uses a timestamped name with a symlink — resolve and copy
     echo "  Copying cramfs-xip rootfs..."
-    docker cp "$CONTAINER_NAME:$DOCKER_IMAGE_PATH/$CRAMFS_SYMLINK" "$IMAGES_DIR/$CRAMFS_LOCAL"
+    REAL_NAME=$(docker exec "$CONTAINER_NAME" readlink -f "$DOCKER_IMAGE_PATH/$CRAMFS_DOCKER" 2>/dev/null | xargs basename)
+    docker cp "$CONTAINER_NAME:$DOCKER_IMAGE_PATH/$REAL_NAME" "$IMAGES_DIR/$CRAMFS_LOCAL"
 
     # Copy ATOC config from tracked location
     echo "  Copying ATOC config..."
     cp "$SCRIPT_DIR/linux-boot-e7.json" "$CONFIG_DIR/linux-boot-e7.json"
 
     echo "=== Artifacts ready ==="
-    ls -lh "$IMAGES_DIR"/
+    ls -lh "$IMAGES_DIR"/{bl32.bin,appkit-e7.dtb,xipImage,alif-tiny-image-appkit-e7.cramfs-xip}
 }
 
 flash_device() {
-    echo "=== Generating ATOC ==="
-
-    if [ ! -x "$SETOOLS_DIR/app-gen-toc" ]; then
-        echo "Error: app-gen-toc not found or not executable at $SETOOLS_DIR/app-gen-toc"
-        echo "Download SETOOLS from https://alifsemi.com/support/kits/ensemble-e7devkit/"
-        echo "Extract to: $WORKSPACE_ROOT/tools/setools/"
-        exit 1
-    fi
-
-    cd "$SETOOLS_DIR"
-    ./app-gen-toc -f build/config/linux-boot-e7.json
-
-    echo "=== Writing to MRAM via SE-UART ==="
-    echo "NOTE: Close any terminal sessions on the SE-UART port first!"
-    echo "NOTE: PRG_USB micro-USB must be connected (separate from J-Link USB)"
-    # -p: pad images to 16-byte alignment (required by MRAM controller)
-    # -v: verbose output
-    # Without -p, tool silently exits (os._exit(1)) on unaligned images
-    ./app-write-mram -v -p
+    local EXTRA_FLAGS=("$@")
+    echo "=== Flashing E7 ==="
+    python3 "$SCRIPT_DIR/alif-flash.py" flash --gen-toc "${EXTRA_FLAGS[@]}"
 }
 
 # Parse args
@@ -88,6 +75,10 @@ case "${1:-}" in
         ;;
     --flash-only)
         flash_device
+        ;;
+    --maintenance)
+        copy_artifacts
+        flash_device --maintenance
         ;;
     *)
         copy_artifacts

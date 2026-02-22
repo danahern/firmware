@@ -1,4 +1,4 @@
-# Linux for Alif Ensemble E7 DevKit
+# Linux for Alif Ensemble E7 AppKit
 
 Yocto-based Linux image and cross-compiled userspace apps for the Alif E7 Cortex-A32 cores.
 
@@ -13,58 +13,81 @@ Boot chain: Secure Enclave → TF-A → xipImage (no U-Boot). Kernel runs XIP fr
 
 ## Yocto Image Build
 
+### Build System
+
+Uses the official **alifsemi/alif_linux-apss-build-setup** orchestrator inside Docker. This produces the correct build with:
+- OE zeus (Yocto 3.0) — NOT scarthgap
+- `MACHINE = "appkit-e7"` — from `meta-alif-ensemble` branch `devkit-ex-b0`
+- `DISTRO = "apss-tiny"` — musl libc + poky-tiny + busybox init (~1.3MB cramfs-xip)
+- Kernel 5.4.25 from `alif_linux` branch `devkit-b0-5.4.y`
+- TF-A from `alif_arm-tf` branch `devkit-ex-b0`
+
 ### Prerequisites
 
 1. Docker Desktop with sufficient resources (8GB+ RAM, 50GB+ disk)
-2. Existing Yocto Docker image: `docker build -t yocto-builder firmware/linux/yocto/`
+2. Pull the official Alif builder image: `docker pull apss/ubuntu-builder:v18.04`
 
-### Build
-
-The E7 build uses the same Yocto Docker container as STM32MP1, with a separate build directory.
+### First-Time Setup
 
 ```bash
-# Start container with yocto-data volume + artifacts bind mount
-docker run -dit --name yocto-build \
-  -v yocto-data:/home/builder/yocto \
-  -v $(pwd)/yocto-build:/home/builder/artifacts \
-  yocto-builder
+# Create named volume for build data persistence
+docker volume create alif-apss-data
 
-# Copy BSP layers into Docker volume (first time only)
-docker exec yocto-build bash -c "
-  cd /home/builder/yocto &&
-  git clone -b scarthgap https://github.com/alifsemi/meta-alif.git &&
-  git clone -b scarthgap https://github.com/alifsemi/meta-alif-ensemble.git
-"
+# Start container
+docker run -dit --name alif-apss-build \
+  -v alif-apss-data:/home/apssbuilder/build-data \
+  apss/ubuntu-builder:v18.04 \
+  tail -f /dev/null
 
-# Copy build config
-docker cp yocto-build/build-alif-e7/conf/. yocto-build:/home/builder/yocto/build-alif-e7/conf/
-
-# Build
-docker exec yocto-build bash -c "
-  cd /home/builder/yocto &&
-  source poky/oe-init-build-env build-alif-e7 &&
-  bitbake core-image-minimal
+# Clone orchestrator and run setup (clones all layers + generates build config)
+docker exec -u apssbuilder alif-apss-build bash -c "
+  cd /home/apssbuilder &&
+  git clone https://github.com/alifsemi/alif_linux-apss-build-setup.git apss-build-setup &&
+  cd apss-build-setup && ./setup.sh
 "
 ```
 
-### Machine Config
+The orchestrator generates `auto.conf` with correct MACHINE, DISTRO, and BSP source URLs. Customizations go in `local.conf` — see `yocto-build/build-alif-e7/conf/local.conf`.
 
-Uses `MACHINE = "devkit-e8"` (the `devkit-e7.conf` was superseded in the scarthgap branch). The E8 config still targets E7 hardware (`TF-A_PLATFORM = "devkit_e7"`).
+### Build
 
-Uses `DISTRO = "apss-tiny"` (musl libc + poky-tiny + busybox init) to produce a cramfs-xip rootfs that fits in 5.7MB MRAM. The `poky` distro's glibc-based image is 8.5MB+ — too large.
+```bash
+docker exec -u apssbuilder alif-apss-build bash -c "
+  cd /home/apssbuilder/apss-build-setup &&
+  source layers/openembedded-core/oe-init-build-env \
+    /home/apssbuilder/build-data/build-appkit-e7 &&
+  bitbake alif-tiny-image
+"
+```
+
+First build: ~40-60 min (no sstate cache). Incremental: ~5 min.
+
+### Customizing local.conf
+
+Copy our tracked config into the container after the orchestrator generates the build dir:
+
+```bash
+docker cp yocto-build/build-alif-e7/conf/local.conf \
+  alif-apss-build:/home/apssbuilder/build-data/build-appkit-e7/conf/local.conf
+```
+
+Key customizations (see `yocto-build/build-alif-e7/conf/local.conf`):
+- `BB_NUMBER_THREADS = "4"` — prevents OOM in macOS Docker
+- `PARALLEL_MAKE = "-j 4"` — same reason
+- Zeus syntax: use `_append`/`_remove` (NOT `:append`/`:remove`)
 
 ### Output Artifacts
 
 | File | Description |
 |------|-------------|
-| `xipImage` | XIP Linux kernel (runs from MRAM) |
-| `bl32.bin` | TF-A BL32 (Secure Payload) |
-| `devkit-e8.dtb` | Device tree blob |
-| `cramfs-xip` | Read-only root filesystem |
+| `xipImage` | XIP Linux kernel (~2.1MB, runs from MRAM) |
+| `bl32.bin` | TF-A BL32 (~30KB, Secure Payload) |
+| `appkit-e7.dtb` | Device tree blob (~25KB) |
+| `alif-tiny-image-appkit-e7.cramfs-xip` | Read-only root filesystem (~1.3MB) |
 
 ### Flashing
 
-Flashing requires Alif's proprietary SETOOLS to generate an ATOC (Application Table of Contents) and write it + binary images to MRAM via the Secure Enclave's UART. This differs from STM32MP1's simple `dd` to SD card.
+Flashing requires Alif's SETOOLS to generate an ATOC (Application Table of Contents) and write it + binary images to MRAM via the Secure Enclave's UART.
 
 **Setup:** Download SETOOLS from [alifsemi.com](https://alifsemi.com/support/kits/ensemble-e7devkit/) and extract to `tools/setools/` (gitignored). See `setools/README.md` for full instructions.
 
@@ -75,16 +98,24 @@ cd firmware/linux/alif-e7/setools
 ./flash-e7.sh              # Copy artifacts from Docker + generate ATOC + flash
 ```
 
-**ATOC config:** `setools/linux-boot-e7.json` defines the memory map (tracked in git). The helper script copies it into the SETOOLS tree before running `app-gen-toc`.
+**MCP workflow:**
+```bash
+alif-flash.gen_toc(config="build/config/linux-boot-e7.json")
+alif-flash.flash(config="build/config/linux-boot-e7.json", maintenance=true)
+# Power cycle (unplug/replug PRG_USB)
+alif-flash.monitor(port=VCOM, baud=115200, duration=30)
+```
+
+**ATOC config:** `setools/linux-boot-e7.json` defines the memory map (tracked in git).
 
 | Image | MRAM Address |
 |-------|-------------|
 | bl32.bin (TF-A) | 0x80002000 |
-| devkit-e8.dtb | 0x80010000 |
+| appkit-e7.dtb | 0x80010000 |
 | xipImage | 0x80020000 |
-| cramfs-xip rootfs | 0x80380000 |
+| cramfs-xip rootfs | 0x80300000 |
 
-**Serial console:** Monitor boot on the second serial port from PRG_USB:
+**Serial console:** Monitor boot on UART2 (J15 jumpers in UART2 position):
 ```bash
 screen /dev/cu.usbmodem<SECOND_PORT> 115200
 ```
@@ -130,10 +161,6 @@ adb devices    # Shows: eai-alif-e7-001    device
 adb shell      # Root shell on board
 ```
 
-### Yocto Config
-
-The E7 `local.conf` includes `android-tools-adbd` and `usb-ecm` packages. The gadget starts at boot via SysVinit (S90).
-
 ## Comparison with STM32MP1
 
 | | STM32MP1 | Alif E7 |
@@ -145,4 +172,6 @@ The E7 `local.conf` includes `android-tools-adbd` and `usb-ecm` packages. The ga
 | Cross-compiler | Buildroot toolchain | System `arm-linux-gnueabihf-gcc` |
 | CPU flags | `-mcpu=cortex-a7 -mfpu=neon-vfpv4` | `-mcpu=cortex-a32 -mfpu=neon` |
 | USB controller | DWC2 | DWC3 |
-| Yocto machine | `stm32mp1` | `devkit-e8` |
+| Yocto machine | `stm32mp1` | `appkit-e7` |
+| Yocto release | scarthgap | zeus (via orchestrator) |
+| Docker image | `yocto-builder` | `apss/ubuntu-builder:v18.04` |

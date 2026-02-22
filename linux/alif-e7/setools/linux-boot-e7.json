@@ -16,7 +16,7 @@
     },
     "DTB": {
         "disabled": false,
-        "binary": "appkit-e8.dtb",
+        "binary": "appkit-e7.dtb",
         "version": "1.0.0",
         "mramAddress": "0x80010000",
         "signed": false
@@ -30,9 +30,9 @@
     },
     "ROOTFS": {
         "disabled": false,
-        "binary": "core-image-minimal-appkit-e8.cramfs-xip",
+        "binary": "alif-tiny-image-appkit-e7.cramfs-xip",
         "version": "1.0.0",
-        "mramAddress": "0x80380000",
+        "mramAddress": "0x80300000",
         "signed": false
     }
 }
