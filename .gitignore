@@ -38,4 +38,9 @@ local.conf
 *.hex
 *.map
 linux/alif-e7/setools/app-release-exec-macos/
+linux/alif-e7/images/
+linux/alif-e7/setools/*.bin
+linux/alif-e7/setools/*.dtb
+linux/alif-e7/setools/xipImage
+linux/alif-e7/setools/*.cramfs-xip
 linux/apps/display_test/display_test
