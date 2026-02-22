@@ -1,0 +1,18 @@
+FROM golang:1.23-bookworm
+
+# PicoClaw cross-compilation for ARM targets
+# Usage:
+#   docker build -t picoclaw-builder -f Dockerfile.picoclaw .
+#   docker run --rm -v $(pwd)/picoclaw:/src -v $(pwd)/build:/out picoclaw-builder armv7
+#   docker run --rm -v $(pwd)/picoclaw:/src -v $(pwd)/build:/out picoclaw-builder arm64
+
+RUN useradd -m -s /bin/bash builder \
+    && mkdir -p /out \
+    && chown builder:builder /out
+USER builder
+WORKDIR /home/builder
+
+COPY --chown=builder:builder docker-entrypoint-picoclaw.sh /usr/local/bin/entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["armv7"]

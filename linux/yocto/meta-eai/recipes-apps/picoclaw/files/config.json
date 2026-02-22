@@ -1,0 +1,54 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "/var/lib/picoclaw/workspace",
+      "restrict_to_workspace": true,
+      "model": "claude",
+      "max_tokens": 4096,
+      "temperature": 0.7,
+      "max_tool_iterations": 10
+    }
+  },
+  "model_list": [
+    {
+      "model_name": "claude",
+      "model": "anthropic/claude-sonnet-4-6",
+      "api_key": "",
+      "api_base": "https://api.anthropic.com/v1"
+    }
+  ],
+  "channels": {
+    "telegram": {
+      "enabled": false,
+      "token": "",
+      "allow_from": []
+    },
+    "discord": {
+      "enabled": false,
+      "token": "",
+      "allow_from": []
+    },
+    "slack": {
+      "enabled": false,
+      "bot_token": "",
+      "app_token": "",
+      "allow_from": []
+    }
+  },
+  "tools": {
+    "web": {
+      "duckduckgo": {
+        "enabled": true,
+        "max_results": 3
+      }
+    }
+  },
+  "heartbeat": {
+    "enabled": true,
+    "interval": 60
+  },
+  "gateway": {
+    "host": "0.0.0.0",
+    "port": 18790
+  }
+}
