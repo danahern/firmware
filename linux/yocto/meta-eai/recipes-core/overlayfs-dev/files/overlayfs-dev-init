@@ -77,6 +77,12 @@ case "$1" in
             / 2>/dev/null
 
         if [ $? -eq 0 ]; then
+            # Re-mount virtual filesystems — overlay on / hides previous mounts
+            mount -t devtmpfs devtmpfs /dev
+            mkdir -p /dev/pts
+            mount -t devpts devpts /dev/pts
+            mount -t proc proc /proc
+            mount -t sysfs sysfs /sys
             echo "overlayfs-dev: writable overlay active"
         else
             echo "overlayfs-dev: overlay mount failed (kernel support missing?)"

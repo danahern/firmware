@@ -1,0 +1,17 @@
+{
+    "DEVICE": {
+        "disabled": false,
+        "binary": "app-device-config.json",
+        "version": "0.5.00",
+        "signed": true
+    },
+    "M55_HP_FLASHER": {
+        "disabled": false,
+        "binary": "flasher-hp.bin",
+        "version": "1.0.0",
+        "mramAddress": "0x80200000",
+        "cpu_id": "M55_HP",
+        "flags": ["boot"],
+        "signed": false
+    }
+}

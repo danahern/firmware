@@ -27,7 +27,7 @@
         "disabled": false,
         "binary": "appkit-e7-ospi.dtb",
         "version": "1.0.0",
-        "mramAddress": "0x80010000",
+        "mramAddress": "0x80200000",
         "signed": false
     }
 }

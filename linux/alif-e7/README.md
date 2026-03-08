@@ -120,6 +120,53 @@ alif-flash.monitor(port=VCOM, baud=115200, duration=30)
 screen /dev/cu.usbmodem<SECOND_PORT> 115200
 ```
 
+### Fast OSPI Flashing via USB
+
+Programs OSPI flash directly over USB at ~60 KB/s using an M55 flasher firmware and XMODEM protocol. ~7 min total vs ~40+ min for the 3-pass SE-UART approach.
+
+**Prerequisites:**
+- pyserial: `pip install pyserial`
+- ARM GNU Toolchain (for building flasher firmware, one-time)
+
+**Workflow:**
+```bash
+# 1. Stage Yocto artifacts
+./stage-ospi.sh
+
+# 2. Build combined OSPI image (rootfs padded to 8MB + kernel)
+./make-ospi-image.sh
+
+# 3. Flash programming mode ATOC (M55 flasher, no TFA)
+alif-flash.gen_toc(config="linux-boot-e7-ospi-usbflash.json")
+alif-flash.flash(wait_for_power_cycle=true)
+# Power cycle (unplug/replug PRG_USB)
+
+# 4. Send combined image via USB XMODEM (~3 min)
+./flash-ospi-usb.sh
+
+# 5. Restore normal boot ATOC (TFA + DTB, kernel/rootfs from OSPI)
+alif-flash.gen_toc(config="linux-boot-e7-ospi.json")
+alif-flash.flash(wait_for_power_cycle=true)
+# Power cycle → Linux boots from new OSPI contents
+```
+
+**Building the flasher firmware** (one-time):
+```bash
+# Source: /path/to/alif_usb-to-ospi-flasher (alifsemi GitHub)
+# Requires: ARM GNU Toolchain 14.2+, CMSIS Toolbox 2.12.0
+# Requires packs: AlifSemiconductor::Ensemble@2.1.0, ThreadX@2.0.0, ARM::CMSIS@6.1.0
+export GCC_TOOLCHAIN_14_2_1=/path/to/arm-gnu-toolchain/bin
+cbuild alif.csolution.yml --context flasher.release+DevKit-E7-HP --toolchain GCC
+cp out/flasher/DevKit-E7-HP/release/flasher.bin setools/images/flasher-hp.bin
+```
+
+**OSPI memory layout:**
+
+| Region | OSPI Address | XIP Address | Content |
+|--------|-------------|-------------|---------|
+| 0x000000–0x7FFFFF | 0x00000000 | 0xC0000000 | rootfs (cramfs-xip, 8MB partition) |
+| 0x800000+ | 0x00800000 | 0xC0800000 | kernel (xipImage) |
+
 ## App Cross-Compilation
 
 ### Docker Image

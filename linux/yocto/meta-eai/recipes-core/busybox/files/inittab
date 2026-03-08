@@ -1,0 +1,27 @@
+# Busybox inittab for cramfs read-only rootfs
+# Note: no remount,rw — rootfs is read-only cramfs (overlayfs-dev provides writable layer)
+
+# Mount virtual filesystems
+::sysinit:/bin/mount -t proc proc /proc
+::sysinit:/bin/mount -t sysfs sysfs /sys
+::sysinit:/bin/mount -t devtmpfs devtmpfs /dev
+::sysinit:/bin/mkdir -p /dev/pts
+::sysinit:/bin/mount -t devpts devpts /dev/pts
+null::sysinit:/bin/ln -sf /proc/self/fd /dev/fd
+null::sysinit:/bin/ln -sf /proc/self/fd/0 /dev/stdin
+null::sysinit:/bin/ln -sf /proc/self/fd/1 /dev/stdout
+null::sysinit:/bin/ln -sf /proc/self/fd/2 /dev/stderr
+# set hostname
+null::sysinit:/bin/busybox hostname -F /etc/hostname
+::sysinit:/etc/init.d/rcS
+
+# Serial console — direct askfirst, no ttyrun dependency
+ttyS0::askfirst:-/bin/sh
+
+# Stuff to do before rebooting
+::shutdown:/etc/init.d/rcK
+::shutdown:/sbin/swapoff -a
+::shutdown:/bin/umount -a -r
+
+# Stuff to do when restarting the init process
+::restart:/sbin/init

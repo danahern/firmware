@@ -1,4 +1,5 @@
 {
+    "_WARNING": "J-Link writes to OSPI and MRAM are overwritten by the SE on every power cycle. This config is NOT suitable for persistent image updates. Use linux-boot-e7-ospi.json with alif-flash.gen_toc + alif-flash.flash (SE-UART ATOC path) for any changes that need to survive a reboot. This file is retained for debugging purposes only (temporary writes, memory inspection).",
     "TFA": {
         "disabled": true,
         "binary": "bl32-ospi.bin",
