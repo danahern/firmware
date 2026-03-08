@@ -1,0 +1,35 @@
+#!/bin/sh
+# preinit — set up overlayfs writable root before /sbin/init
+# Boot with: init=/sbin/preinit
+
+NEWROOT=/mnt/overlay
+OVERLAY_UPPER=/tmp/.overlay/upper
+OVERLAY_WORK=/tmp/.overlay/work
+
+# Mount essential virtual filesystems
+mount -t proc proc /proc
+mount -t devtmpfs devtmpfs /dev
+
+# Mount tmpfs for writable upper layer
+mount -t tmpfs tmpfs /tmp
+mkdir -p "$OVERLAY_UPPER" "$OVERLAY_WORK" "$NEWROOT"
+
+# Mount overlay combining read-only cramfs + writable tmpfs
+mount -t overlay overlay \
+    -o "lowerdir=/,upperdir=$OVERLAY_UPPER,workdir=$OVERLAY_WORK" \
+    "$NEWROOT"
+
+if [ $? -ne 0 ]; then
+    echo "preinit: overlay mount failed, booting read-only"
+    umount /tmp /dev /proc 2>/dev/null
+    exec /sbin/init "$@"
+fi
+
+# Move existing mounts into the new root
+mkdir -p "$NEWROOT/proc" "$NEWROOT/dev" "$NEWROOT/tmp"
+mount --move /proc "$NEWROOT/proc"
+mount --move /dev "$NEWROOT/dev"
+mount --move /tmp "$NEWROOT/tmp"
+
+echo "preinit: switching to overlayfs root"
+exec switch_root "$NEWROOT" /sbin/init "$@"

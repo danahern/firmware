@@ -9,7 +9,7 @@ The E7 has a heterogeneous architecture:
 - **2x Cortex-M55** — Zephyr RTOS
 - **Ethos-U55** — NPU for ML inference
 
-Boot chain: Secure Enclave → TF-A → xipImage (no U-Boot). Kernel runs XIP from MRAM.
+Boot chain: Secure Enclave → TF-A (sp_min) → xipImage (no U-Boot). Kernel runs XIP from OSPI.
 
 ## Yocto Image Build
 
@@ -78,46 +78,82 @@ Key customizations (see `yocto-build/build-alif-e7/conf/local.conf`):
 
 ### Output Artifacts
 
-| File | Description |
-|------|-------------|
-| `xipImage` | XIP Linux kernel (~2.1MB, runs from MRAM) |
-| `bl32.bin` | TF-A BL32 (~30KB, Secure Payload) |
-| `appkit-e7.dtb` | Device tree blob (~25KB) |
-| `alif-tiny-image-appkit-e7.cramfs-xip` | Read-only root filesystem (~1.3MB) |
+| File | Description | Size |
+|------|-------------|------|
+| `bl32-ospi.bin` | TF-A BL32 (built from source, see below) | ~30KB |
+| `devkit-e7-ospi.dtb` | Device tree blob (hand-patched, see below) | ~33KB |
+| `xipImage-ospi` | XIP Linux kernel (from Yocto) | ~3.7MB |
+| `rootfs-ospi.bin` | cramfs-xip root filesystem (from Yocto) | ~5MB |
+| `m55_stub_hp.bin` | M55 stub (prebuilt, keeps M55_HP alive for JLink) | ~4KB |
+
+## TF-A Build (from source)
+
+TF-A is built from the `alif_arm-tf` repo using the `tfa-build` Docker container. The build takes ~5 seconds and should be done fresh every time rather than relying on prebuilt copies.
+
+```bash
+./build-tfa.sh          # clean build + stage + verify (~5 sec)
+./build-tfa.sh --no-clean  # incremental build
+```
+
+**Critical build flags** (omitting any produces a broken/different binary):
+- `ENABLE_PIE=1` — required for E7 memory layout
+- `ENABLE_STACK_PROTECTOR=strong` — produces ~30KB binary (without: ~26KB, untested)
+- `HYPRAM_EN=1` + `FLASH_EN=1` — initializes HyperRAM and OSPI hardware
+- `PRELOADED_BL33_BASE=0xC0800000` — kernel XIP address in OSPI
+- `ARM_PRELOADED_DTB_BASE=0x80200000` — DTB location in MRAM (SE REV_B4 minimum)
+- `UART=2` — console output on UART2
+
+**Verification**: The binary MUST contain the string "USB clocks enabled" (added in commit `56dfb6fd`). Without USB clock enabling, TF-A boots normally but the kernel silently fails to start. The `build-tfa.sh` script checks this automatically.
+
+**Container setup** (one-time):
+```bash
+docker run -dit --name tfa-build \
+  -v $(pwd)/alif_arm-tf:/workspace \
+  alif-e7-sdk:latest tail -f /dev/null
+```
+
+## DTB
+
+The DTB is maintained as a hand-patched binary (`devkit-e7-ospi.dtb`), not built from Yocto. This is because:
+1. The upstream `devkit-e7-ospi.dts` needs UART2 fixes (remove pinctrl deps, add clock-frequency)
+2. Yocto's DCT tool can silently disable HyperRAM depending on build variable state
+3. The DTB patches are small and well-documented
+
+**Current patches** (applied to base `devkit-e7-ospi.dtb` via `fdtput`):
+1. `aliases/serial0` → UART2 (`/apb@49010000/serial@4901a000`)
+2. `chosen/bootargs` → earlycon (no baud rate!), console, cramfs root from OSPI
+3. UART2 node: removed `clocks`, `clock-names`, `pinctrl-0`, `pinctrl-names`; added `clock-frequency = <100000000>`
+
+**Known-working DTB**: md5 `caea9c2cc0cda2ce3983647619972219` (33,549 bytes)
 
 ### Flashing
 
-Flashing requires Alif's SETOOLS to generate an ATOC (Application Table of Contents) and write it + binary images to MRAM via the Secure Enclave's UART.
+Two-step flash via JLink (MRAM direct write + OSPI flash loader):
 
-**Setup:** Download SETOOLS from [alifsemi.com](https://alifsemi.com/support/kits/ensemble-e7devkit/) and extract to `tools/setools/` (gitignored). See `setools/README.md` for full instructions.
-
-**Quick flash:**
 ```bash
-# Connect PRG_USB, then:
-cd firmware/linux/alif-e7/setools
-./flash-e7.sh              # Copy artifacts from Docker + generate ATOC + flash
+# Stage all artifacts (builds TF-A, copies kernel/rootfs from Yocto container)
+./stage-ospi.sh
+
+# Flash MRAM (TF-A + DTB + M55 stub) — ~1 sec
+alif-flash.jlink_flash(config="linux-boot-e7-mram.json", verify=true)
+
+# Flash OSPI (kernel + rootfs) — ~10 min via JLink FLM
+alif-flash.jlink_flash(config="linux-boot-e7-ospi-jlink.json", verify=true)
 ```
 
-**MCP workflow:**
+**Memory map (OSPI boot):**
+
+| Image | Address | Memory | Config |
+|-------|---------|--------|--------|
+| TF-A (bl32-ospi.bin) | 0x80002000 | MRAM | linux-boot-e7-mram.json |
+| DTB (devkit-e7-ospi.dtb) | 0x80200000 | MRAM | linux-boot-e7-mram.json |
+| M55 stub | 0x50000000 | MRAM | linux-boot-e7-mram.json |
+| RootFS (cramfs) | 0xC0000000 | OSPI | linux-boot-e7-ospi-jlink.json |
+| Kernel (xipImage) | 0xC0800000 | OSPI | linux-boot-e7-ospi-jlink.json |
+
+**Serial console:** UART2 via FTDI at 115200 baud:
 ```bash
-alif-flash.gen_toc(config="build/config/linux-boot-e7.json")
-alif-flash.flash(config="build/config/linux-boot-e7.json", maintenance=true)
-# Power cycle (unplug/replug PRG_USB)
-alif-flash.monitor(port=VCOM, baud=115200, duration=30)
-```
-
-**ATOC config:** `setools/linux-boot-e7.json` defines the memory map (tracked in git).
-
-| Image | MRAM Address |
-|-------|-------------|
-| bl32.bin (TF-A) | 0x80002000 |
-| appkit-e7.dtb | 0x80010000 |
-| xipImage | 0x80020000 |
-| cramfs-xip rootfs | 0x80300000 |
-
-**Serial console:** Monitor boot on UART2 (J15 jumpers in UART2 position):
-```bash
-screen /dev/cu.usbmodem<SECOND_PORT> 115200
+screen /dev/cu.usbserial-BG03TY04 115200
 ```
 
 ### Fast OSPI Flashing via USB

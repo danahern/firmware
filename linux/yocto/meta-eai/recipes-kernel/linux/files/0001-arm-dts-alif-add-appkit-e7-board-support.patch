@@ -1,0 +1,432 @@
+From c274936a20d588f49b09e8c1eb7698572b0670b2 Mon Sep 17 00:00:00 2001
+From: EAI <eai@example.com>
+Date: Sun, 8 Mar 2026 14:24:39 -0400
+Subject: [PATCH] arm: dts: alif: add AppKit-E7 board support
+
+Add device tree for the Alif AppKit-E7 (AK-E7-AIML) board.
+
+Key differences from AppKit-E8:
+- 32MB ISSI HyperRAM (not 64MB Macronix)
+- UART2 workaround: bypass kernel clock/pinctrl framework
+- earlycon without baud rate (preserves TF-A correct divisor)
+- bootargs include init=/sbin/preinit for overlayfs support
+
+Signed-off-by: EAI <eai@example.com>
+---
+ .../boot/dts/alif/ensemble/appkit/Makefile    |   1 +
+ .../dts/alif/ensemble/appkit/appkit-e7.dts    | 392 ++++++++++++++++++
+ 2 files changed, 393 insertions(+)
+ create mode 100644 arch/arm/boot/dts/alif/ensemble/appkit/appkit-e7.dts
+
+diff --git a/arch/arm/boot/dts/alif/ensemble/appkit/Makefile b/arch/arm/boot/dts/alif/ensemble/appkit/Makefile
+index 4b69929f750e..78f29f9a8c5b 100644
+--- a/arch/arm/boot/dts/alif/ensemble/appkit/Makefile
++++ b/arch/arm/boot/dts/alif/ensemble/appkit/Makefile
+@@ -1,5 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0
+ dtb-$(CONFIG_ARCH_ENSEMBLE) += \
+ 	appkit-e6.dtb \
++	appkit-e7.dtb \
+ 	appkit-e8-unicore.dtb \
+ 	appkit-e8.dtb
+diff --git a/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e7.dts b/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e7.dts
+new file mode 100644
+index 000000000000..93dd59e0fdce
+--- /dev/null
++++ b/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e7.dts
+@@ -0,0 +1,392 @@
++// SPDX-License-Identifier: (GPL-2.0+)
++/*
++ * Copyright (C) 2025 Alif Semiconductor
++ *
++ * AppKit-E7 (AK-E7-AIML) — 32MB ISSI HyperRAM variant
++ * Based on appkit-e8.dts with E7-specific memory and UART workarounds.
++ */
++/dts-v1/;
++
++#include "../common/ensemble-ex.dtsi"
++#include "../common/devkit_ex_dct_defines.h"
++
++/ {
++	model = "appkit-e7";
++	compatible = "alif,ensemble";
++
++	aliases {
++		serial0 = &uart2;
++	};
++
++	reg_3p3v: regulator-3v3 {
++		compatible = "regulator-fixed";
++		regulator-name = "fixed-3.3V";
++		regulator-min-microvolt = <3300000>;
++		regulator-max-microvolt = <3300000>;
++		regulator-always-on;
++	};
++	reg_2p7v: regulator-2v7 {
++		compatible = "regulator-fixed";
++		regulator-name = "fixed-2.7V";
++		regulator-min-microvolt = <2700000>;
++		regulator-max-microvolt = <2700000>;
++		regulator-always-on;
++	};
++	reg_1p8v: regulator-1v8 {
++		compatible = "regulator-fixed";
++		regulator-name = "fixed-1.8V";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		regulator-always-on;
++	};
++	reg_1p2v: regulator-1v2 {
++		compatible = "regulator-fixed";
++		regulator-name = "fixed-1.2V";
++		regulator-min-microvolt = <1200000>;
++		regulator-max-microvolt = <1200000>;
++		regulator-always-on;
++	};
++
++	chosen {
++		bootargs = "earlycon=uart8250,mmio32,0x4901a000 \
++		console=ttyS0,115200n8 \
++		root=mtd:physmap-flash.0 \
++		rootfstype=cramfs ro init=/sbin/preinit loglevel=9";
++	};
++
++	sound {
++		compatible = "simple-audio-card";
++		simple-audio-card,name = "wm8904-audio";
++		simple-audio-card,format = "i2s";
++		simple-audio-card,frame-master = <&cpudai_0>;
++		simple-audio-card,bitclock-master = <&cpudai_0>;
++		simple-audio-card,widgets =
++			"Headphone Jack", "Left Line Out",
++			"Headphone Jack", "Right Line Out";
++
++		cpudai_0: simple-audio-card,cpu {
++			sound-dai = <&i2s2>;
++		};
++		acodec: simple-audio-card,codec {
++			sound-dai = <&wm8904>;
++		};
++	};
++
++};
++
++/* E7 has 32MB ISSI HyperRAM (not 64MB like E8) */
++&mem_hyperam {
++	reg = <0xa0000000 0x2000000>;
++	status = MEM_HYPER_STATUS;
++};
++
++&cpu1 {
++	status = CPU1_STATUS;
++};
++
++&mem_stitch {
++	status = MEM_STITCH_STATUS;
++};
++
++&mem_hyp_stitch {
++	status = MEM_HYP_STITCH_STATUS;
++};
++
++&utimer {
++	status = UTIMER0_STATUS;
++};
++
++&hsusb {
++	status = HSUSB_STATUS;
++	dwc3: usb@48200000 {
++		status = HSUSB_STATUS;
++	};
++};
++
++&pdm0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_pdm0>;
++	status = PDM_STATUS;
++};
++
++&uart0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_uart0>;
++};
++
++/*
++ * UART2 workaround: use clock-frequency instead of clocks phandle.
++ * The psclks clock provider fails to register because the MHU -> SE host
++ * services chain requires all MHU nodes to probe first. TF-A already
++ * configures UART2 pins and clock, so we bypass the kernel clock/pinctrl
++ * framework here. Remove this workaround once the full MHU -> SE -> clock
++ * chain is verified working end-to-end.
++ */
++&uart2 {
++	/delete-property/ clocks;
++	/delete-property/ clock-names;
++	/delete-property/ pinctrl-0;
++	/delete-property/ pinctrl-names;
++	clock-frequency = <100000000>;
++	status = UART2_STATUS;
++};
++
++&uart3 {
++	status = UART3_STATUS;
++};
++
++&uart4 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_uart4>;
++	status = UART4_STATUS;
++};
++
++&i2c0 {
++	#address-cells = <1>;
++	#size-cells = <0>;
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_i2c0>;
++	status = I2C0_STATUS;
++};
++
++&i2c1 {
++	#address-cells = <1>;
++	#size-cells = <0>;
++	clock-frequency = <100000>;
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_i2c1>;
++	status = I2C1_STATUS;
++	wm8904: codec@1a {
++		compatible = "wlf,wm8904";
++		reg = <0x1a>;
++		#sound-dai-cells = <0>;
++		clocks = <&wm8904_mclk>;
++		clock-names = "mclk";
++	};
++	ch201: ch201@29 {
++		compatible = "invensense,ch201";
++		reg = <0x29>;               /* application I2C address */
++		interrupt-parent = <&port7>;
++		interrupts = <3 IRQ_TYPE_EDGE_RISING>;
++		prog-gpios = <&port7 2 GPIO_ACTIVE_HIGH>;
++		reset-gpios = <&port7 4 GPIO_ACTIVE_LOW>;
++		intr-gpios = <&port7 3 GPIO_ACTIVE_HIGH>;
++	};
++};
++
++&i2s2 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_i2s2>;
++	status = I2S2_STATUS;
++};
++
++&eth0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_eth0>;
++	status = ETH_STATUS;
++};
++
++&spi0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_spi0>;
++	#address-cells = <1>;
++	#size-cells = <0>;
++	status = SPI0_STATUS;
++};
++
++&spi1 {
++	pinctrl-names = "default";
++	#address-cells = <1>;
++	#size-cells = <0>;
++	status = SPI1_STATUS;
++};
++
++&spi3 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_spi3>;
++	#address-cells = <1>;
++	#size-cells = <0>;
++	cs-gpios = <&port13 7 0>;
++	status = SPI3_STATUS;
++};
++
++&hwsem0  { status = HWSEM0_STATUS;  };
++&hwsem1  { status = HWSEM1_STATUS;  };
++&hwsem2  { status = HWSEM2_STATUS;  };
++&hwsem3  { status = HWSEM3_STATUS;  };
++&hwsem4  { status = HWSEM4_STATUS;  };
++&hwsem5  { status = HWSEM5_STATUS;  };
++&hwsem6  { status = HWSEM6_STATUS;  };
++&hwsem7  { status = HWSEM7_STATUS;  };
++&hwsem8  { status = HWSEM8_STATUS;  };
++&hwsem9  { status = HWSEM9_STATUS;  };
++&hwsem10 { status = HWSEM10_STATUS; };
++&hwsem11 { status = HWSEM11_STATUS; };
++&hwsem12 { status = HWSEM12_STATUS; };
++&hwsem13 { status = HWSEM13_STATUS; };
++&hwsem14 { status = HWSEM14_STATUS; };
++&hwsem15 { status = HWSEM15_STATUS; };
++
++&mbox_m55_hp_mhu0_tx { status = M55_HP_MHU0_TX_STATUS; };
++&mbox_m55_hp_mhu1_tx { status = M55_HP_MHU1_TX_STATUS; };
++&mbox_m55_hp_mhu0_rx { status = M55_HP_MHU0_RX_STATUS; };
++&mbox_m55_hp_mhu1_rx { status = M55_HP_MHU1_RX_STATUS; };
++&mbox_m55_he_mhu0_tx { status = M55_HE_MHU0_TX_STATUS; };
++&mbox_m55_he_mhu1_tx { status = M55_HE_MHU1_TX_STATUS; };
++&mbox_m55_he_mhu0_rx { status = M55_HE_MHU0_RX_STATUS; };
++&mbox_m55_he_mhu1_rx { status = M55_HE_MHU1_RX_STATUS; };
++&mbox_se_mhu0_tx     { status = SE_MHU0_TX_STATUS;     };
++&mbox_se_mhu1_tx     { status = SE_MHU1_TX_STATUS;     };
++&mbox_se_mhu0_rx     { status = SE_MHU0_RX_STATUS;     };
++&mbox_se_mhu1_rx     { status = SE_MHU1_RX_STATUS;     };
++
++&sd_reset {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_sd_reset>;
++};
++
++&sdmmc {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_sdhci>;
++	status = SDHCI_STATUS;
++};
++
++&i3c0 {
++	pinctrl-names = "default";
++	pinctrl-0 = <&pinctrl_i3c0>;
++	status = I3C0_STATUS;
++	bmi323_i3c@69 {
++		reg = <0x69 0x03b8 0x0>;
++		vdd-supply = <&reg_1p8v>;
++		vddio-supply = <&reg_1p8v>;
++		assigned-address = <0xa>;
++		status = "okay";
++	};
++};
++
++&ethosu_npu {
++	status = ETHOSU_NPU_STATUS;
++};
++
++&pinmux {
++	pinctrl_eth0: eth0grp {
++		pinmux = <
++			PIN_P11_2__ETH_MDC_B		0x23
++			PIN_P11_1__ETH_MDIO_B		0x23
++			PIN_P11_3__ETH_RXD0_B		0x23
++			PIN_P11_4__ETH_RXD1_B		0x23
++			PIN_P11_5__ETH_CRS_DV_B	0x23
++			PIN_P11_7__ETH_IRQ_B		0x23
++			PIN_P6_0__ETH_TXD0_A		0x23
++			PIN_P10_5__ETH_TXD1_B		0x23
++			PIN_P10_6__ETH_TXEN_B		0x23
++			PIN_P11_0__ETH_REFCLK_B	0x23
++			PIN_P11_6__ETH_RST_B		0x23
++		>;
++	};
++
++	pinctrl_uart0: uart0grp {
++		pinmux = <
++			PIN_P1_4__UART0_RX_B	0x23
++			PIN_P1_5__UART0_TX_B	0x23
++		>;
++	};
++
++	pinctrl_uart2: uart2grp {
++		pinmux = <
++			PIN_P1_0__UART2_RX_A	0x23
++			PIN_P1_1__UART2_TX_A	0x23
++		>;
++	};
++
++	pinctrl_uart4: uart4grp {
++		pinmux = <
++			PIN_P12_1__UART4_RX_B	0x23
++			PIN_P12_2__UART4_TX_B	0x23
++		>;
++	};
++
++	pinctrl_i2c0: i2c0grp {
++		pinmux = <
++			PIN_P3_4__I2C0_SCL_B	0x23
++			PIN_P3_5__I2C0_SDA_B	0x23
++		>;
++	};
++	pinctrl_i2c1: i2c1grp {
++		pinmux = <
++			PIN_P7_2__I2C1_SDA_C	0x23
++			PIN_P7_3__I2C1_SCL_C	0x23
++			PIN_P6_2__GPIO		0x23
++			PIN_P6_3__GPIO		0x23
++			PIN_P6_4__GPIO		0x23
++		>;
++	};
++
++	pinctrl_i2s2: i2s2grp {
++		pinmux = <
++			PIN_P8_1__I2S2_SDI_A	0x23
++			PIN_P8_2__I2S2_SDO_A	0x23
++			PIN_P8_3__I2S2_SCLK_A	0x23
++			PIN_P8_4__I2S2_WS_A	0x23
++		>;
++	};
++
++	pinctrl_i3c0: i3c0grp {
++		pinmux = <
++			PIN_P7_6__I3C_SDA_D	0x2b
++			PIN_P7_7__I3C_SCL_D	0x2b
++		>;
++	};
++
++	pinctrl_pdm0: pdm0grp {
++		pinmux = <
++			PIN_P6_7__PDM_C2_A	0x0
++			PIN_P5_4__PDM_D2_B	0x1
++			PIN_P0_5__PDM_C0_A	0x0
++			PIN_P0_4__PDM_D0_A	0x1
++			PIN_P6_3__PDM_C1_C	0x0
++			PIN_P6_2__PDM_D1_C	0x1
++		>;
++	};
++
++	pinctrl_spi0: spi0grp {
++		pinmux = <
++			PIN_P5_2__SPI0_SS0_B	0x23
++			PIN_P5_3__SPI0_SCLK_B	0x23
++			PIN_P5_0__SPI0_MISO_B	0x23
++			PIN_P5_1__SPI0_MOSI_B	0x23
++		>;
++	};
++	pinctrl_spi1: spi1grp {
++		pinmux = <
++			PIN_P6_4__SPI1_SS0_B	0x0
++			PIN_P8_5__SPI1_SCLK_B	0x0
++			PIN_P8_3__SPI1_MISO_B	0x23
++			PIN_P8_4__SPI1_MOSI_B	0x0
++		>;
++	};
++	pinctrl_spi3: spi3grp {
++		pinmux = <
++			PIN_P12_7__GPIO		0x0
++			PIN_P12_6__SPI3_SCLK_A	0x0
++			PIN_P12_4__SPI3_MISO_A	0x23
++			PIN_P12_5__SPI3_MOSI_A	0x0
++		>;
++	};
++	pinctrl_sd_reset: sd_resetgrp {
++		pinmux = <
++			PIN_P14_7__GPIO		0x23 /* sd reset line */
++		>;
++	};
++	pinctrl_sdhci: sdhci0grp {
++		pinmux = <
++			PIN_P5_0__SD_D0_A       0x23
++			PIN_P5_1__SD_D1_A       0x23
++			PIN_P5_2__SD_D2_A       0x23
++			PIN_P5_3__SD_D3_A       0x23
++			PIN_P7_0__SD_CMD_A      0x23
++			PIN_P7_1__SD_CLK_A      0x23
++		>;
++	};
++
++};
+-- 
+2.34.1
+
