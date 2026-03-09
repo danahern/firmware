@@ -21,7 +21,9 @@
 # Without USB clock enabling, TF-A boots but kernel silently fails.
 #
 # Usage:
-#   ./build-tfa.sh              # clean build + stage + verify
+#   ./build-tfa.sh              # clean build bl32-ospi.bin (normal Linux boot)
+#   ./build-tfa.sh --usb-init   # clean build bl32-usbinit.bin (USB programming mode)
+#   ./build-tfa.sh --both       # build both variants (clean between)
 #   ./build-tfa.sh --no-clean   # incremental build (skip make realclean)
 #   ./build-tfa.sh --dry-run    # show build command without executing
 
@@ -35,19 +37,37 @@ OUTPUT_BIN="/workspace/build/devkit_e7/debug/bl32.bin"
 
 CLEAN=true
 DRY_RUN=false
+USB_INIT=false
+BUILD_BOTH=false
 for arg in "$@"; do
     case "$arg" in
         --no-clean) CLEAN=false ;;
         --dry-run)  DRY_RUN=true ;;
+        --usb-init) USB_INIT=true ;;
+        --both)     BUILD_BOTH=true ;;
         -h|--help)
-            echo "Usage: $0 [--no-clean] [--dry-run]"
+            echo "Usage: $0 [--no-clean] [--dry-run] [--usb-init] [--both]"
             echo "  --no-clean  Skip make realclean (incremental build)"
             echo "  --dry-run   Show build command without executing"
+            echo "  --usb-init  Build USB programming mode variant (bl32-usbinit.bin)"
+            echo "  --both      Build both bl32-ospi.bin and bl32-usbinit.bin"
             exit 0
             ;;
         *) echo "Unknown option: $arg"; exit 1 ;;
     esac
 done
+
+# --both recursively calls this script for each variant
+if $BUILD_BOTH; then
+    echo "=== Building both TF-A variants ==="
+    EXTRA_ARGS=""
+    $DRY_RUN && EXTRA_ARGS="--dry-run"
+    "$0" $EXTRA_ARGS
+    "$0" --usb-init $EXTRA_ARGS
+    echo ""
+    echo "=== Both variants built ==="
+    exit 0
+fi
 
 BUILD_CMD='make -j$(nproc) PLAT=devkit_e7 ARCH=aarch32 AARCH32_SP=sp_min \
     CROSS_COMPILE=arm-linux-gnueabihf- ARM_LINUX_KERNEL_AS_BL33=1 \
@@ -55,10 +75,21 @@ BUILD_CMD='make -j$(nproc) PLAT=devkit_e7 ARCH=aarch32 AARCH32_SP=sp_min \
     ARM_PRELOADED_DTB_BASE=0x80200000 RAM_PRELOADED_DTB_BASE=0x02390000 \
     ENABLE_PIE=1 ENABLE_STACK_PROTECTOR=strong \
     BL32_IN_XIP_MEM=1 BL32_XIP_BASE=0x80002000 \
-    UART=2 HYPRAM_EN=1 FLASH_EN=1 AES_EN=0 MODEM_SRAM=0 DEBUG=1 bl32'
+    UART=2 HYPRAM_EN=1 FLASH_EN=1 AES_EN=0 MODEM_SRAM=0 DEBUG=1'
+
+if $USB_INIT; then
+    BUILD_CMD="$BUILD_CMD USB_INIT_HALT=1"
+    OUTPUT_NAME="bl32-usbinit.bin"
+    VARIANT="USB programming mode"
+else
+    OUTPUT_NAME="bl32-ospi.bin"
+    VARIANT="normal Linux boot"
+fi
+BUILD_CMD="$BUILD_CMD bl32"
 
 if $DRY_RUN; then
     echo "Container: $CONTAINER"
+    echo "Variant: $VARIANT"
     echo "Clean: $CLEAN"
     echo ""
     if $CLEAN; then
@@ -66,7 +97,7 @@ if $DRY_RUN; then
     fi
     echo "Step 2: $BUILD_CMD"
     echo ""
-    echo "Output: $OUTPUT_BIN → $STAGING_DIR/bl32-ospi.bin"
+    echo "Output: $OUTPUT_BIN → $STAGING_DIR/$OUTPUT_NAME"
     exit 0
 fi
 
@@ -84,7 +115,7 @@ if $CLEAN; then
 fi
 
 # Build
-echo "=== Building TF-A ==="
+echo "=== Building TF-A ($VARIANT) ==="
 docker exec "$CONTAINER" bash -c "cd /workspace && $BUILD_CMD"
 
 # Verify output exists
@@ -107,41 +138,54 @@ fi
 
 # Copy to staging
 mkdir -p "$STAGING_DIR"
-docker cp "$CONTAINER:$OUTPUT_BIN" "$STAGING_DIR/bl32-ospi.bin"
-echo "Staged: $STAGING_DIR/bl32-ospi.bin"
+docker cp "$CONTAINER:$OUTPUT_BIN" "$STAGING_DIR/$OUTPUT_NAME"
+echo "Staged: $STAGING_DIR/$OUTPUT_NAME"
 
 # Verify critical features
 echo ""
 echo "=== Verification ==="
 
-if strings "$STAGING_DIR/bl32-ospi.bin" | grep -q "USB clocks enabled"; then
+if strings "$STAGING_DIR/$OUTPUT_NAME" | grep -q "USB clocks enabled"; then
     echo "OK: USB clock enabling present"
 else
     echo "FAIL: 'USB clocks enabled' string NOT found — this binary will NOT boot the kernel!"
     exit 1
 fi
 
-if strings "$STAGING_DIR/bl32-ospi.bin" | grep -q "HyperRAM configured"; then
+if strings "$STAGING_DIR/$OUTPUT_NAME" | grep -q "HyperRAM configured"; then
     echo "OK: HyperRAM initialization present"
 else
     echo "FAIL: HyperRAM init not found"
     exit 1
 fi
 
-if strings "$STAGING_DIR/bl32-ospi.bin" | grep -q "OSPI NOR Flash"; then
+if strings "$STAGING_DIR/$OUTPUT_NAME" | grep -q "OSPI NOR Flash"; then
     echo "OK: OSPI flash initialization present"
 else
     echo "FAIL: OSPI init not found"
     exit 1
 fi
 
-BUILD_DATE=$(strings "$STAGING_DIR/bl32-ospi.bin" | grep "^Built :")
+if $USB_INIT; then
+    if strings "$STAGING_DIR/$OUTPUT_NAME" | grep -q "USB_INIT_HALT"; then
+        echo "OK: USB_INIT_HALT mode present"
+    else
+        echo "FAIL: USB_INIT_HALT string not found — is USB_INIT_HALT=1 in the TF-A source?"
+        exit 1
+    fi
+fi
+
+BUILD_DATE=$(strings "$STAGING_DIR/$OUTPUT_NAME" | grep "^Built :")
 echo "Build: $BUILD_DATE"
 
-MD5=$(md5 -q "$STAGING_DIR/bl32-ospi.bin" 2>/dev/null || md5sum "$STAGING_DIR/bl32-ospi.bin" | cut -d' ' -f1)
+MD5=$(md5 -q "$STAGING_DIR/$OUTPUT_NAME" 2>/dev/null || md5sum "$STAGING_DIR/$OUTPUT_NAME" | cut -d' ' -f1)
 echo "MD5: $MD5"
-echo "Size: $(stat -f%z "$STAGING_DIR/bl32-ospi.bin" 2>/dev/null || stat -c%s "$STAGING_DIR/bl32-ospi.bin") bytes"
+echo "Size: $(stat -f%z "$STAGING_DIR/$OUTPUT_NAME" 2>/dev/null || stat -c%s "$STAGING_DIR/$OUTPUT_NAME") bytes"
 
 echo ""
 echo "=== Ready to flash ==="
-echo "Flash with: alif-flash.jlink_flash(config=\"linux-boot-e7-mram.json\", verify=true)"
+if $USB_INIT; then
+    echo "Flash with: alif-flash.jlink_flash(config=\"linux-boot-e7-ospi-usbflash.json\")"
+else
+    echo "Flash with: alif-flash.jlink_flash(config=\"linux-boot-e7-mram.json\")"
+fi

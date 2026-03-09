@@ -156,52 +156,130 @@ alif-flash.jlink_flash(config="linux-boot-e7-ospi-jlink.json", verify=true)
 screen /dev/cu.usbserial-BG03TY04 115200
 ```
 
-### Fast OSPI Flashing via USB
+### Fast OSPI Flashing via USB (~5 min)
 
-Programs OSPI flash directly over USB at ~60 KB/s using an M55 flasher firmware and XMODEM protocol. ~7 min total vs ~40+ min for the 3-pass SE-UART approach.
+Programs OSPI flash at ~47 KB/s via USB XMODEM using the `ospi_program_usb` MCP tool.
+Compared to JLink OSPI flash loader (~3 KB/s, ~40 min) or SE-UART ISP (~45 min).
 
-**Prerequisites:**
-- pyserial: `pip install pyserial`
-- ARM GNU Toolchain (for building flasher firmware, one-time)
+#### Hardware Requirements
 
-**Workflow:**
+- **J1 (PRG_USB)** — FTDI debug USB, always connected (SE-UART + UART2 console)
+- **J2 (SoC USB, Micro-B)** — Alif DWC3 USB, connects CDC-ACM for XMODEM data transfer
+- **JLink probe** — already connected via SWD on the AppKit board
+
+Both J1 and J2 must be connected to your Mac.
+
+#### Firmware Prerequisites (build once, rebuild when source changes)
+
+Two firmware binaries are needed. Neither is included in the MCP — they're built from source.
+
+**1. bl32-usbinit.bin** — TF-A variant that enables USB PHY then parks A32:
+
 ```bash
-# 1. Stage Yocto artifacts
-./stage-ospi.sh
-
-# 2. Build combined OSPI image (rootfs padded to 8MB + kernel)
-./make-ospi-image.sh
-
-# 3. Flash programming mode ATOC (M55 flasher, no TFA)
-alif-flash.gen_toc(config="linux-boot-e7-ospi-usbflash.json")
-alif-flash.flash(wait_for_power_cycle=true)
-# Power cycle (unplug/replug PRG_USB)
-
-# 4. Send combined image via USB XMODEM (~3 min)
-./flash-ospi-usb.sh
-
-# 5. Restore normal boot ATOC (TFA + DTB, kernel/rootfs from OSPI)
-alif-flash.gen_toc(config="linux-boot-e7-ospi.json")
-alif-flash.flash(wait_for_power_cycle=true)
-# Power cycle → Linux boots from new OSPI contents
+cd firmware/linux/alif-e7
+./build-tfa.sh --usb-init     # → tools/setools/build/images/bl32-usbinit.bin (~30KB, ~5 sec)
 ```
 
-**Building the flasher firmware** (one-time):
+Or build both variants at once:
 ```bash
-# Source: /path/to/alif_usb-to-ospi-flasher (alifsemi GitHub)
-# Requires: ARM GNU Toolchain 14.2+, CMSIS Toolbox 2.12.0
-# Requires packs: AlifSemiconductor::Ensemble@2.1.0, ThreadX@2.0.0, ARM::CMSIS@6.1.0
-export GCC_TOOLCHAIN_14_2_1=/path/to/arm-gnu-toolchain/bin
+./build-tfa.sh --both         # builds bl32-ospi.bin + bl32-usbinit.bin
+```
+
+Requires: `tfa-build` Docker container with `arm-linux-gnueabihf-gcc`.
+The only difference from the normal TF-A is `USB_INIT_HALT=1`: after enabling USB clocks and calling SE AIPM to power the USB PHY, A32 parks in `wfe` instead of jumping to the kernel.
+
+**2. flasher-hp.bin** — M55_HP XMODEM-to-OSPI receiver:
+
+```bash
+# Source: alifsemi/alif_usb-to-ospi-flasher (GitHub)
+cd /path/to/alif_usb-to-ospi-flasher
+
+# Install CMSIS Toolbox (one-time — bundled in repo)
+export PATH="$(pwd)/cmsis-toolbox-darwin-arm64/bin:$PATH"
+
+# Install ARM GNU Toolchain 14.2+ and set env
+export GCC_TOOLCHAIN_14_2_1=/path/to/arm-gnu-toolchain-14.2/bin
+
+# Build
 cbuild alif.csolution.yml --context flasher.release+DevKit-E7-HP --toolchain GCC
-cp out/flasher/DevKit-E7-HP/release/flasher.bin setools/images/flasher-hp.bin
+
+# Stage to setools
+cp out/flasher/DevKit-E7-HP/release/flasher.bin \
+   /path/to/work/tools/setools/build/images/flasher-hp.bin
 ```
 
-**OSPI memory layout:**
+Requires CMSIS packs (auto-installed by cbuild):
+- `AlifSemiconductor::Ensemble@2.1.0`
+- `AlifSemiconductor::ThreadX@2.0.0`
+- `ARM::CMSIS@6.1.0`
 
-| Region | OSPI Address | XIP Address | Content |
-|--------|-------------|-------------|---------|
-| 0x000000–0x7FFFFF | 0x00000000 | 0xC0000000 | rootfs (cramfs-xip, 8MB partition) |
-| 0x800000+ | 0x00800000 | 0xC0800000 | kernel (xipImage) |
+**3. ATOC config** — `build/config/linux-boot-e7-ospi-usbflash.json` (already in setools, no build needed).
+
+#### End-to-End Workflow (MCP tools)
+
+```
+# Step 1: Generate programming mode ATOC (~1 sec)
+alif-flash.gen_toc(config="build/config/linux-boot-e7-ospi-usbflash.json")
+
+# Step 2: Flash programming mode to MRAM (~1 sec)
+#   Writes: ATOC + bl32-usbinit.bin (A32) + flasher-hp.bin (M55_HP)
+#   Triggers JLink NSRST reset → SE processes ATOC → both cores boot
+#   A32 enables USB PHY, M55_HP starts XMODEM receiver
+#   /dev/cu.usbmodem12001 (VID 0x0525) appears after ~3 sec
+alif-flash.jlink_flash(config="build/config/linux-boot-e7-ospi-usbflash.json")
+
+# Step 3: Transfer OSPI image via USB XMODEM (~4.3 min for 12MB)
+#   Auto-detects Alif CDC-ACM device (VID 0x0525)
+#   Returns structured result with bytes_sent, speed, flasher_message
+alif-flash.ospi_program_usb(image="/path/to/ospi-combined.bin")
+
+# Step 4: Restore normal boot ATOC (~2 sec)
+alif-flash.gen_toc(config="build/config/linux-boot-e7-mram.json")
+alif-flash.jlink_flash(config="build/config/linux-boot-e7-mram.json")
+
+# Step 5: Power cycle → Linux boots from OSPI
+```
+
+**CRITICAL: Always `gen_toc` before `jlink_flash` when switching configs.**
+AppTocPackage.bin is a shared file — without regenerating it, `jlink_flash` writes the wrong ATOC and the SE boots the wrong firmware.
+
+#### Architecture: Why Two Cores?
+
+The flasher uses a split architecture to work around an SE deadlock:
+
+| Core | Firmware | Role |
+|------|----------|------|
+| A32 (Cortex-A32) | `bl32-usbinit.bin` | Calls SE AIPM to enable USB PHY power domain, then parks in WFE |
+| M55_HP (Cortex-M55) | `flasher-hp.bin` | Direct register writes for USB clocks, DWC3 CDC-ACM init, XMODEM receiver, OSPI programmer |
+
+**Why not single-core?** The SE AIPM service (`SERVICES_set_run_cfg(USB_PHY_MASK)`) works when called from A32's MHU channel but **deadlocks the SE when called from M55_HP's MHU channel**. There is no recovery from this deadlock except a hard maintenance erase + power cycle. The split architecture avoids this entirely.
+
+#### Combined OSPI Image Layout
+
+The `ospi-combined.bin` file concatenates rootfs (padded to 8MB) + kernel:
+
+| Offset | Size | OSPI Address | XIP Address | Content |
+|--------|------|-------------|-------------|---------|
+| 0x000000 | 8MB | 0x00000000 | 0xC0000000 | rootfs (cramfs-xip, padded to 8MB) |
+| 0x800000 | ~3.7MB | 0x00800000 | 0xC0800000 | kernel (xipImage) |
+
+Build it with:
+```bash
+# Pad rootfs to exactly 8MB, append kernel
+dd if=rootfs-ospi.bin of=ospi-combined.bin bs=1M count=8 conv=sync
+cat xipImage-ospi.bin >> ospi-combined.bin
+```
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| No `/dev/cu.usbmodem*` (VID 0x0525) after flash | M55_HP flasher didn't boot, or J2 cable not connected | Check J2 cable. Check SE-UART for boot errors. Verify gen_toc was run for usbflash config. |
+| `ospi_program_usb` picks wrong device | J-Link VCOM (VID 0x1366) detected instead of Alif | Specify `device="/dev/cu.usbmodem12001"` explicitly |
+| "No response from receiver" timeout | Flasher not ready or wrong serial port | Wait 5 sec after jlink_flash for CDC-ACM to enumerate |
+| Board won't boot after restore | Stale AppTocPackage.bin | Run `gen_toc` with normal boot config BEFORE `jlink_flash` |
+| Firewall exceptions on SE-UART after restore | Residual hardware state from flasher | Full power cycle (unplug + replug), not just NSRST reset |
+| SE deadlock (ISP unresponsive, JLink can't access cores) | M55_HP called SERVICES_set_run_cfg | Maintenance erase with native Alif tool + power cycle |
 
 ## App Cross-Compilation
 
