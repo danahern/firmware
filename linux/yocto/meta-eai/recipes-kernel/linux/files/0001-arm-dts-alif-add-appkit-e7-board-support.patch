@@ -1,4 +1,4 @@
-From c274936a20d588f49b09e8c1eb7698572b0670b2 Mon Sep 17 00:00:00 2001
+From a62b56f7db8ef302fec030a1e6a492820041dd2d Mon Sep 17 00:00:00 2001
 From: EAI <eai@example.com>
 Date: Sun, 8 Mar 2026 14:24:39 -0400
 Subject: [PATCH] arm: dts: alif: add AppKit-E7 board support
@@ -14,8 +14,8 @@ Key differences from AppKit-E8:
 Signed-off-by: EAI <eai@example.com>
 ---
  .../boot/dts/alif/ensemble/appkit/Makefile    |   1 +
- .../dts/alif/ensemble/appkit/appkit-e7.dts    | 392 ++++++++++++++++++
- 2 files changed, 393 insertions(+)
+ .../dts/alif/ensemble/appkit/appkit-e7.dts    | 410 ++++++++++++++++++
+ 2 files changed, 411 insertions(+)
  create mode 100644 arch/arm/boot/dts/alif/ensemble/appkit/appkit-e7.dts
 
 diff --git a/arch/arm/boot/dts/alif/ensemble/appkit/Makefile b/arch/arm/boot/dts/alif/ensemble/appkit/Makefile
@@ -31,10 +31,10 @@ index 4b69929f750e..78f29f9a8c5b 100644
  	appkit-e8.dtb
 diff --git a/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e7.dts b/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e7.dts
 new file mode 100644
-index 000000000000..93dd59e0fdce
+index 000000000000..4eefec890416
 --- /dev/null
 +++ b/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e7.dts
-@@ -0,0 +1,392 @@
+@@ -0,0 +1,410 @@
 +// SPDX-License-Identifier: (GPL-2.0+)
 +/*
 + * Copyright (C) 2025 Alif Semiconductor
@@ -88,7 +88,7 @@ index 000000000000..93dd59e0fdce
 +		bootargs = "earlycon=uart8250,mmio32,0x4901a000 \
 +		console=ttyS0,115200n8 \
 +		root=mtd:physmap-flash.0 \
-+		rootfstype=cramfs ro init=/sbin/preinit loglevel=9";
++		rootfstype=cramfs ro init=/sbin/preinit loglevel=9 clk_ignore_unused";
 +	};
 +
 +	sound {
@@ -114,28 +114,46 @@ index 000000000000..93dd59e0fdce
 +/* E7 has 32MB ISSI HyperRAM (not 64MB like E8) */
 +&mem_hyperam {
 +	reg = <0xa0000000 0x2000000>;
-+	status = MEM_HYPER_STATUS;
++	status = "okay";
 +};
 +
 +&cpu1 {
 +	status = CPU1_STATUS;
 +};
 +
++/*
++ * Hard-code memory layout — bypass DCT macros.
++ * SRAM0 only (4MB) — SRAM1 is firewall-protected (FC5 blocks A32 access).
++ * Known-working layout: SRAM 4MB + MRAM ~2.4MB + HyperRAM 32MB.
++ * Using 0x7DE000 (~8MB stitch) triggers firewall exception at 0x025FF000.
++ */
 +&mem_stitch {
-+	status = MEM_STITCH_STATUS;
++	reg = <0x02000000 0x400000 0x08010000 0x26f000>;
++	status = "okay";
 +};
 +
 +&mem_hyp_stitch {
-+	status = MEM_HYP_STITCH_STATUS;
++	status = "disabled";
 +};
 +
 +&utimer {
 +	status = UTIMER0_STATUS;
 +};
 +
++/*
++ * DWC3 USB workaround: remove clock/PHY dependencies on broken MHU → SE chain.
++ * TF-A enables USB clocks (CGU bits 21-23, PERIPH_CLK_ENA = 0x11111113)
++ * before jumping to Linux. The ensemble glue driver's power_control() handles
++ * PHY power-on register writes directly. Remove this workaround once the full
++ * MHU → SE → clock chain is verified working end-to-end.
++ */
 +&hsusb {
++	/delete-property/ clocks;
++	/delete-property/ clock-names;
 +	status = HSUSB_STATUS;
 +	dwc3: usb@48200000 {
++		/delete-property/ phy;
++		/delete-property/ phy-names;
 +		status = HSUSB_STATUS;
 +	};
 +};
@@ -153,10 +171,10 @@ index 000000000000..93dd59e0fdce
 +
 +/*
 + * UART2 workaround: use clock-frequency instead of clocks phandle.
-+ * The psclks clock provider fails to register because the MHU -> SE host
++ * The psclks clock provider fails to register because the MHU → SE host
 + * services chain requires all MHU nodes to probe first. TF-A already
 + * configures UART2 pins and clock, so we bypass the kernel clock/pinctrl
-+ * framework here. Remove this workaround once the full MHU -> SE -> clock
++ * framework here. Remove this workaround once the full MHU → SE → clock
 + * chain is verified working end-to-end.
 + */
 +&uart2 {

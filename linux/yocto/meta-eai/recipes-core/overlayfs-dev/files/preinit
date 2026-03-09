@@ -1,35 +1,32 @@
 #!/bin/sh
-# preinit — set up overlayfs writable root before /sbin/init
+# preinit - set up overlayfs writable root before /sbin/init
 # Boot with: init=/sbin/preinit
+#
+# Creates a tmpfs-backed overlayfs over the read-only cramfs rootfs.
+# The tmpfs backing store (/tmp) is NOT moved into the overlay — the
+# overlay holds VFS references to the upper/work dirs, so they survive
+# switch_root even though /tmp becomes invisible in the new namespace.
+# Writes to /tmp in the running system go through the overlay upper layer.
 
-NEWROOT=/mnt/overlay
-OVERLAY_UPPER=/tmp/.overlay/upper
-OVERLAY_WORK=/tmp/.overlay/work
-
-# Mount essential virtual filesystems
 mount -t proc proc /proc
-mount -t devtmpfs devtmpfs /dev
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
 
-# Mount tmpfs for writable upper layer
-mount -t tmpfs tmpfs /tmp
-mkdir -p "$OVERLAY_UPPER" "$OVERLAY_WORK" "$NEWROOT"
+# tmpfs for overlay backing store (upper + work + mountpoint)
+mount -t tmpfs -o size=4m tmpfs /tmp
+mkdir -p /tmp/upper /tmp/work /tmp/newroot
 
-# Mount overlay combining read-only cramfs + writable tmpfs
-mount -t overlay overlay \
-    -o "lowerdir=/,upperdir=$OVERLAY_UPPER,workdir=$OVERLAY_WORK" \
-    "$NEWROOT"
-
-if [ $? -ne 0 ]; then
+# Mount overlay: read-only cramfs below, writable tmpfs above
+if ! mount -t overlay overlay \
+    -o "lowerdir=/,upperdir=/tmp/upper,workdir=/tmp/work" \
+    /tmp/newroot; then
     echo "preinit: overlay mount failed, booting read-only"
     umount /tmp /dev /proc 2>/dev/null
     exec /sbin/init "$@"
 fi
 
-# Move existing mounts into the new root
-mkdir -p "$NEWROOT/proc" "$NEWROOT/dev" "$NEWROOT/tmp"
-mount --move /proc "$NEWROOT/proc"
-mount --move /dev "$NEWROOT/dev"
-mount --move /tmp "$NEWROOT/tmp"
+# Move kernel-mounted filesystems into the overlay
+mount --move /proc /tmp/newroot/proc
+mount --move /dev /tmp/newroot/dev
 
 echo "preinit: switching to overlayfs root"
-exec switch_root "$NEWROOT" /sbin/init "$@"
+exec chroot /tmp/newroot /sbin/init "$@"

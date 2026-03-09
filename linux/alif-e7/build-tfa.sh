@@ -82,6 +82,7 @@ if $USB_INIT; then
     OUTPUT_NAME="bl32-usbinit.bin"
     VARIANT="USB programming mode"
 else
+    BUILD_CMD="$BUILD_CMD USB_INIT_HALT=0"
     OUTPUT_NAME="bl32-ospi.bin"
     VARIANT="normal Linux boot"
 fi
