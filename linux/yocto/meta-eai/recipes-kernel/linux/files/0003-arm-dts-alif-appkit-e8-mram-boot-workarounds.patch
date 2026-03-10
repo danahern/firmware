@@ -1,74 +1,115 @@
-From 5bb5f0e6fd4593cfc3108a9e0dd7e4364d99499d Mon Sep 17 00:00:00 2001
+From 9e16a3d8c7ba000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: OpenEmbedded <oe.patch@oe>
-Date: Mon, 9 Mar 2026 13:53:14 -0400
+Date: Mon, 10 Mar 2026 08:00:00 -0400
 Subject: [PATCH] arm: dts: alif: appkit-e8: MRAM boot workarounds
 
 Modify AppKit-E8 DTS for MRAM-only boot with USB gadget support:
 - Hard-code memory layout (bypass unreliable DCT macros)
 - DWC3 USB: remove clock/PHY dependencies (TF-A pre-configures)
-- UART4: bypass kernel clock/pinctrl (TF-A pre-configures)
+- UART2: bypass kernel clock/pinctrl (TF-A pre-configures)
 - Add earlycon and clk_ignore_unused to bootargs
-- HyperRAM disabled (Macronix 64MB init not yet verified)
+- Add mtd-ram rootfs node for cramfs XIP
+- HyperRAM enabled (64MB Macronix, TF-A initializes with HYPRAM_EN=1)
+- Delete ethosu reserved-memory and disable NPU (unused)
+- Add SRAM1 memory node (TF-A reserves first 160KB)
 
 Signed-off-by: EAI <eai@example.com>
 ---
- .../dts/alif/ensemble/appkit/appkit-e8.dts    | 48 ++++++++++++++-----
- 1 file changed, 37 insertions(+), 11 deletions(-)
+ .../dts/alif/ensemble/appkit/appkit-e8.dts    | 88 +++++++++++++++----
+ 1 file changed, 72 insertions(+), 16 deletions(-)
 
 diff --git a/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e8.dts b/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e8.dts
-index 85bf980d2296..7c736ca42dc7 100644
+index f62477dbd99a..9e16a3d8c7ba 100644
 --- a/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e8.dts
 +++ b/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e8.dts
-@@ -45,9 +45,10 @@ reg_1p2v: regulator-1v2 {
+@@ -1,6 +1,9 @@
+ // SPDX-License-Identifier: (GPL-2.0+)
+ /*
+  * Copyright (C) 2025 Alif Semiconductor
++ *
++ * AppKit-E8 — 64MB Macronix HyperRAM variant
++ * UART/USB workarounds for broken MHU → SE → clock chain.
+  */
+ /dts-v1/;
+
+@@ -45,9 +48,24 @@ reg_1p2v: regulator-1v2 {
  	};
- 
+
  	chosen {
 -		bootargs = "console=ttyS0,115200n8 \
-+		bootargs = "earlycon=uart8250,mmio32,0x4901c000 \
-+		console=ttyS0,115200n8 \
- 		root=mtd:physmap-flash.0 \
+-		root=mtd:physmap-flash.0 \
 -		rootfstype=cramfs ro loglevel=9";
++		bootargs = "earlycon=uart8250,mmio32,0x4901a000 \
++		console=ttyS0,115200n8 \
++		root=/dev/mtdblock0 \
 +		rootfstype=cramfs ro loglevel=9 clk_ignore_unused";
++	};
++
++	/*
++	 * MRAM rootfs region as mtd-ram — enables mtd_point() for cramfs XIP.
++	 * Yocto builds cramfs-xip images with executables stored uncompressed
++	 * and page-aligned. mtd_point() is required for XIP to work; without it,
++	 * cramfs tries to decompress uncompressed XIP data → Z_DATA_ERROR.
++	 * map_ram supports mtd_point(); map_rom does not.
++	 * Also blocks CONFIG_MTD_PHYSMAP_COMPAT CFI probe (claims region first).
++	 */
++	rootfs_flash: flash@80400000 {
++		compatible = "mtd-ram";
++		reg = <0x80400000 0x180000>;
++		bank-width = <4>;
  	};
- 
+
  	sound {
-@@ -71,29 +72,46 @@ acodec: simple-audio-card,codec {
+@@ -74,26 +92,59 @@ &cpu1 {
+ 	status = CPU1_STATUS;
  };
- 
- &cpu1 {
--	status = CPU1_STATUS;
+
++/* E8 has 64MB Macronix HyperRAM — TF-A initializes with HYPRAM_EN=1 */
++&mem_hyperam {
++	reg = <0xa0000000 0x4000000>;
 +	status = "okay";
- };
- 
++};
++
 +/*
-+ * Hard-code memory layout -- bypass DCT macros.
-+ * E8 SRAM is contiguous: SRAM0 (4MB @ 0x02000000) + SRAM1 (3MB @ 0x02400000).
-+ * Reserve 128KB at end (0x027DE000) for TF-A trusted SRAM.
++ * Delete ethosu reserved-memory nodes — they reference HyperRAM addresses
++ * (0xa2000000, 0xa3000000) and the ethosu driver is not needed for Linux.
++ * Keeping these would waste 64MB of HyperRAM for unused NPU DMA pools.
++ */
++/delete-node/ &ethosu_reserved;
++/delete-node/ &ethosu_sram;
++
++/*
++ * SRAM0: 4MB @ 0x02000000
++ * SRAM1: 4MB @ 0x08000000 (NOT contiguous with SRAM0).
++ * TF-A reserves first 160KB of SRAM1 (ARM_TRUSTED_SRAM_BASE=0x08000000,
++ * PLAT_ARM_TRUSTED_SRAM_SIZE=0x28000). Linux gets the rest.
 + */
  &mem_stitch {
 -	status = MEM_STITCH_STATUS;
-+	reg = <0x02000000 0x7DE000>;
++	reg = <0x02000000 0x400000>;
 +	status = "okay";
  };
- 
-+/* E8 has 64MB Macronix HyperRAM -- disabled until TF-A rebuilt with HYPRAM_EN */
- &mem_hyperam {
+
+-&mem_hyperam {
 -	status = MEM_HYPER_STATUS;
-+	reg = <0xa0000000 0x4000000>;
-+	status = "disabled";
++/ {
++	sram1: memory@8028000 {
++		device_type = "memory";
++		reg = <0x08028000 0x3D8000>;
++	};
  };
- 
+
  &mem_hyp_stitch {
 -	status = MEM_HYP_STITCH_STATUS;
 +	status = "disabled";
  };
- 
+
  &utimer {
  	status = UTIMER0_STATUS;
  };
- 
+
 +/*
-+ * DWC3 USB workaround: remove clock/PHY dependencies on broken MHU -> SE chain.
++ * DWC3 USB workaround: remove clock/PHY dependencies on broken MHU → SE chain.
 + * TF-A enables USB clocks (CGU bits 21-23, PERIPH_CLK_ENA = 0x11111113)
 + * before jumping to Linux.
 + */
@@ -84,20 +125,20 @@ index 85bf980d2296..7c736ca42dc7 100644
 +		status = "okay";
  	};
  };
- 
-@@ -118,10 +136,18 @@ &uart3 {
- 	status = UART3_STATUS;
+
+@@ -108,10 +159,18 @@ &uart0 {
+ 	pinctrl-0 = <&pinctrl_uart0>;
  };
- 
+
 +/*
-+ * UART4 workaround: use clock-frequency instead of clocks phandle.
-+ * TF-A already configures UART4 pins and clock, so bypass the kernel
-+ * clock/pinctrl framework (broken MHU -> SE -> clock chain).
++ * UART2 workaround: use clock-frequency instead of clocks phandle.
++ * TF-A already configures UART2 pins and clock, so bypass the kernel
++ * clock/pinctrl framework (broken MHU → SE → clock chain).
 + */
- &uart4 {
+ &uart2 {
 -	pinctrl-names = "default";
--	pinctrl-0 = <&pinctrl_uart4>;
--	status = UART4_STATUS;
+-	pinctrl-0 = <&pinctrl_uart2>;
+-	status = UART2_STATUS;
 +	/delete-property/ clocks;
 +	/delete-property/ clock-names;
 +	/delete-property/ pinctrl-0;
@@ -105,8 +146,20 @@ index 85bf980d2296..7c736ca42dc7 100644
 +	clock-frequency = <100000000>;
 +	status = "okay";
  };
- 
- &i2c0 {
--- 
+
+ &uart3 {
+@@ -330,7 +389,10 @@ bmi323_i3c@69 {
+ };
+
+ &ethosu_npu {
+-	status = ETHOSU_NPU_STATUS;
++	/delete-property/ memory-region;
++	/delete-property/ sram;
++	/delete-property/ dma-ranges;
++	status = "disabled";
+ };
+
+ &pinmux {
+--
 2.34.1
 

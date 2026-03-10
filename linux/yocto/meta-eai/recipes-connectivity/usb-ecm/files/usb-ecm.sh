@@ -12,8 +12,13 @@ if [ -z "$UDC_NAME" ]; then
     exit 1
 fi
 
-# Detect board from device tree (model is lowercase, e.g. "appkit-e7")
-if grep -qi "alif\|ensemble\|appkit-e\|devkit-e" /proc/device-tree/model 2>/dev/null; then
+# Detect board from device tree model string
+if grep -qi "e8" /proc/device-tree/model 2>/dev/null; then
+    SERIAL="eai-alif-e8-001"
+    PRODUCT="Alif E8 Dev Board"
+    DEV_MAC="02:00:86:e8:00:01"
+    HOST_MAC="02:00:86:e8:00:02"
+elif grep -qi "alif\|ensemble\|appkit-e\|devkit-e" /proc/device-tree/model 2>/dev/null; then
     SERIAL="eai-alif-e7-001"
     PRODUCT="Alif E7 Dev Board"
     DEV_MAC="02:00:86:e7:00:01"
