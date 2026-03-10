@@ -1,0 +1,112 @@
+From 5bb5f0e6fd4593cfc3108a9e0dd7e4364d99499d Mon Sep 17 00:00:00 2001
+From: OpenEmbedded <oe.patch@oe>
+Date: Mon, 9 Mar 2026 13:53:14 -0400
+Subject: [PATCH] arm: dts: alif: appkit-e8: MRAM boot workarounds
+
+Modify AppKit-E8 DTS for MRAM-only boot with USB gadget support:
+- Hard-code memory layout (bypass unreliable DCT macros)
+- DWC3 USB: remove clock/PHY dependencies (TF-A pre-configures)
+- UART4: bypass kernel clock/pinctrl (TF-A pre-configures)
+- Add earlycon and clk_ignore_unused to bootargs
+- HyperRAM disabled (Macronix 64MB init not yet verified)
+
+Signed-off-by: EAI <eai@example.com>
+---
+ .../dts/alif/ensemble/appkit/appkit-e8.dts    | 48 ++++++++++++++-----
+ 1 file changed, 37 insertions(+), 11 deletions(-)
+
+diff --git a/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e8.dts b/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e8.dts
+index 85bf980d2296..7c736ca42dc7 100644
+--- a/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e8.dts
++++ b/arch/arm/boot/dts/alif/ensemble/appkit/appkit-e8.dts
+@@ -45,9 +45,10 @@ reg_1p2v: regulator-1v2 {
+ 	};
+ 
+ 	chosen {
+-		bootargs = "console=ttyS0,115200n8 \
++		bootargs = "earlycon=uart8250,mmio32,0x4901c000 \
++		console=ttyS0,115200n8 \
+ 		root=mtd:physmap-flash.0 \
+-		rootfstype=cramfs ro loglevel=9";
++		rootfstype=cramfs ro loglevel=9 clk_ignore_unused";
+ 	};
+ 
+ 	sound {
+@@ -71,29 +72,46 @@ acodec: simple-audio-card,codec {
+ };
+ 
+ &cpu1 {
+-	status = CPU1_STATUS;
++	status = "okay";
+ };
+ 
++/*
++ * Hard-code memory layout -- bypass DCT macros.
++ * E8 SRAM is contiguous: SRAM0 (4MB @ 0x02000000) + SRAM1 (3MB @ 0x02400000).
++ * Reserve 128KB at end (0x027DE000) for TF-A trusted SRAM.
++ */
+ &mem_stitch {
+-	status = MEM_STITCH_STATUS;
++	reg = <0x02000000 0x7DE000>;
++	status = "okay";
+ };
+ 
++/* E8 has 64MB Macronix HyperRAM -- disabled until TF-A rebuilt with HYPRAM_EN */
+ &mem_hyperam {
+-	status = MEM_HYPER_STATUS;
++	reg = <0xa0000000 0x4000000>;
++	status = "disabled";
+ };
+ 
+ &mem_hyp_stitch {
+-	status = MEM_HYP_STITCH_STATUS;
++	status = "disabled";
+ };
+ 
+ &utimer {
+ 	status = UTIMER0_STATUS;
+ };
+ 
++/*
++ * DWC3 USB workaround: remove clock/PHY dependencies on broken MHU -> SE chain.
++ * TF-A enables USB clocks (CGU bits 21-23, PERIPH_CLK_ENA = 0x11111113)
++ * before jumping to Linux.
++ */
+ &hsusb {
+-	status = HSUSB_STATUS;
++	/delete-property/ clocks;
++	/delete-property/ clock-names;
++	status = "okay";
+ 	dwc3: usb@48200000 {
+-		status = HSUSB_STATUS;
++		/delete-property/ phy;
++		/delete-property/ phy-names;
++		status = "okay";
+ 	};
+ };
+ 
+@@ -118,10 +136,18 @@ &uart3 {
+ 	status = UART3_STATUS;
+ };
+ 
++/*
++ * UART4 workaround: use clock-frequency instead of clocks phandle.
++ * TF-A already configures UART4 pins and clock, so bypass the kernel
++ * clock/pinctrl framework (broken MHU -> SE -> clock chain).
++ */
+ &uart4 {
+-	pinctrl-names = "default";
+-	pinctrl-0 = <&pinctrl_uart4>;
+-	status = UART4_STATUS;
++	/delete-property/ clocks;
++	/delete-property/ clock-names;
++	/delete-property/ pinctrl-0;
++	/delete-property/ pinctrl-names;
++	clock-frequency = <100000000>;
++	status = "okay";
+ };
+ 
+ &i2c0 {
+-- 
+2.34.1
+
